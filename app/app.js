@@ -185,6 +185,52 @@
     } catch (e) { return false; } // shown on the Settings page; the list here is untouched
   }
   window.addEventListener("chipaway:resume", () => { if (SYNC.syncer) runSync(); });
+
+  /** Google's sign-in (from a tap), then turn sync on and run the first round. Resolves to whether it synced. */
+  async function signInWithGoogle(onStarted = () => {}) {
+    const token = await Native.googleToken({ interactive: true });
+    let email = "";
+    try { email = (await (await fetch("https://www.googleapis.com/oauth2/v3/userinfo", { headers: { Authorization: `Bearer ${token}` } })).json()).email || ""; } catch (e) { /* shown without it */ }
+    SYNC.on = true; SYNC.email = email || SYNC.email;
+    store("sync.on", true); store("sync.email", SYNC.email);
+    SYNC.status = { state: "syncing" };
+    onStarted();
+    await startSync();
+    return SYNC.status.state === "ok";
+  }
+
+  // ---------- first visit to the web app: sign in, or just use it in this browser ----------
+  const needsWelcome = () => !Native.isApp && Native.canSignIn && !SYNC.on && !recall("web.welcomed", false);
+  function renderWelcome() {
+    setTabs("");
+    document.body.classList.add("welcoming");
+    $app.innerHTML = `<div class="welcome card">
+      <h2>Welcome to ChipAway</h2>
+      <p class="muted">How do you want to use it here?</p>
+      <div class="welcome-choice">
+        <button class="btn primary" id="wSignIn">Sign in with Google</button>
+        <p class="small muted">See the same list as ChipAway on your phone. It syncs through your own Google Drive, in a folder only ChipAway can see. Turn on sync in the phone app too (Settings → Sync).</p>
+      </div>
+      <div class="welcome-choice">
+        <button class="btn" id="wLocal">Use it without signing in</button>
+        <p class="small muted">Your list is kept only in this browser. It isn't on your phone, and clearing your browser's data erases it. You can sign in later in Settings.</p>
+      </div>
+    </div>`;
+    const done = () => { store("web.welcomed", true); document.body.classList.remove("welcoming"); location.hash = "#/plan"; render(); };
+    document.getElementById("wLocal").addEventListener("click", done);
+    const b = document.getElementById("wSignIn");
+    b.addEventListener("click", async () => {
+      b.disabled = true;
+      try {
+        const ok = await signInWithGoogle();
+        done();
+        toast(ok ? "Syncing with Google Drive." : syncStatusText(), !ok);
+      } catch (e) {
+        b.disabled = false;
+        if (e.code !== "cancelled") toast(e.message, true);
+      }
+    });
+  }
   const agoShort = (ms) => {
     const s = Math.round((Date.now() - ms) / 1000);
     if (s < 60) return "just now";
@@ -438,6 +484,7 @@
   }
 
   async function render() {
+    if (needsWelcome()) return renderWelcome();
     const r = route();
     setTabs(r.name);
     if (!S.loaded) {
@@ -1201,7 +1248,7 @@
         <div class="set-row"><div class="t">Import or restore<div class="sub">A ChipAway backup file. Replaces everything here; what's here now is kept as a safety copy first.</div></div>
           <label class="btn">Choose file…<input type="file" id="restore" hidden></label></div>
       </div>
-      <p class="muted small" style="margin-top:14px">${SYNC.on ? "Everything is stored on this phone and in your Google Drive. Nothing is sent anywhere else." : "Everything is stored on this phone. Nothing is sent anywhere unless you back it up, share it or turn on sync."}</p>
+      <p class="muted small" style="margin-top:14px">${SYNC.on ? `Everything is stored on this ${Native.isApp ? "phone" : "computer"} and in your Google Drive. Nothing is sent anywhere else.` : Native.isApp ? "Everything is stored on this phone. Nothing is sent anywhere unless you back it up, share it or turn on sync." : "Everything is stored only in this browser. Clearing the browser's data erases it, so back it up or turn on sync."}</p>
       <h3>About</h3>
       <div class="card">
         <a class="set-row link-row" href="https://gochipaway.com/privacy/"><div class="t">Privacy policy</div><span class="muted">›</span></a>
@@ -1257,15 +1304,8 @@
     if (signIn) signIn.addEventListener("click", async () => {
       signIn.disabled = true;
       try {
-        const token = await Native.googleToken({ interactive: true });
-        let email = "";
-        try { email = (await (await fetch("https://www.googleapis.com/oauth2/v3/userinfo", { headers: { Authorization: `Bearer ${token}` } })).json()).email || ""; } catch (e) { /* shown without it */ }
-        SYNC.on = true; SYNC.email = email || SYNC.email;
-        store("sync.on", true); store("sync.email", SYNC.email);
-        SYNC.status = { state: "syncing" };
-        renderSettings();
-        await startSync();
-        if (SYNC.status.state === "ok") toast("Syncing with Google Drive.");
+        const ok = await signInWithGoogle(() => renderSettings());
+        if (ok) toast("Syncing with Google Drive.");
         else toast(syncStatusText(), true);
         renderSettings();
       } catch (e) {
