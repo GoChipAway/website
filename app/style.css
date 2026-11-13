@@ -80,6 +80,7 @@ h3 { font-size: .8rem; text-transform: uppercase; letter-spacing: .06em; color: 
 .muted { color: var(--muted); }
 .small { font-size: .86rem; }
 .hidden { display: none !important; }
+[hidden] { display: none !important; } /* .set-row and friends set display, which would otherwise win */
 
 /* top bar */
 .top { position: sticky; top: 0; z-index: 10; background: color-mix(in srgb, var(--bg) 88%, transparent);
