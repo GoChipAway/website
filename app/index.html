@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#2f5d50">
+<meta name="color-scheme" content="light dark">
+<title>ChipAway</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="top-in">
+    <a class="brand" href="#/plan"><svg class="mark" viewBox="0 0 24 24" width="28" height="28" aria-hidden="true"><path d="M3.5 12.5l5.2 5.2L17.6 6.4" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M20.6 1l2.4 1-1.2 2.4-2.2-.8z" fill="currentColor"/><path d="M22.3 6.8l1.5.4-.5 1.5-1.3-.5z" fill="currentColor" opacity=".7"/></svg><span class="brand-name">ChipAway</span></a>
+    <nav class="tabs" aria-label="Main">
+      <a href="#/plan" data-tab="plan">Plan</a>
+      <a href="#/projects" data-tab="projects">Projects</a>
+    </nav>
+    <div class="top-actions">
+      <a class="icon-btn" href="#/settings" data-tab="settings" aria-label="Settings" title="Settings">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+      </a>
+      <a class="btn add" href="#/new" aria-label="Add a project">+ Add</a>
+    </div>
+  </div>
+</header>
+<main id="app" tabindex="-1"></main>
+<div id="toast" role="status" aria-live="polite"></div>
+<script src="logic.js"></script>
+<script src="merge.js"></script>
+<script src="store.js"></script>
+<script src="sync.js"></script>
+<script src="import.js"></script>
+<script src="native.bundle.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
