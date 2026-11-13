@@ -241,7 +241,7 @@
     const st = SYNC.status;
     if (st.state === "syncing") return "Syncing…";
     if (st.state === "error") {
-      if (st.code === "auth") return "Google needs you to sign in again.";
+      if (st.code === "auth") return "Paused: sign in again to keep syncing.";
       return st.message || "Couldn't sync. It'll try again next time.";
     }
     if (SYNC.syncer && SYNC.syncer.lastSynced) return `Synced ${agoShort(SYNC.syncer.lastSynced)}.`;
@@ -1234,7 +1234,7 @@
       <h3>Sync</h3>
       <div class="card" id="syncCard">${SYNC.on ? `
         <div class="set-row"><div class="t">Syncing with Google Drive<div class="sub">${esc(SYNC.email)} · <span id="syncStatus">${esc(syncStatusText())}</span></div></div><button class="btn" id="syncNow">Sync now</button></div>
-        <div class="set-row" id="syncAgain" ${SYNC.status.state === "error" && SYNC.status.code === "auth" ? "" : "hidden"}><div class="t">Sign in again<div class="sub">Google asked to confirm it's still you.</div></div><button class="btn primary" id="syncSignIn">Sign in</button></div>
+        <div class="set-row" id="syncAgain" ${SYNC.status.state === "error" && SYNC.status.code === "auth" ? "" : "hidden"}><div class="t">Sign in again<div class="sub">Sync is paused until you do.${Native.isApp ? "" : " In a browser, Google's sign-in lasts about an hour."}</div></div><button class="btn primary" id="syncSignIn">Sign in</button></div>
         <div class="set-row"><div class="t">Stop syncing<div class="sub">Everything stays on this ${Native.isApp ? "phone" : "computer"}. The copy in Google Drive stays too, until you delete it.</div></div><button class="btn" id="syncStop">Stop</button></div>
         <div class="set-row"><div class="t">Delete my cloud copy<div class="sub">Removes ChipAway's list and photos from your Google Drive and stops syncing. Nothing here is deleted.</div></div><button class="btn danger" id="syncDelete">Delete</button></div>`
       : `
@@ -1316,6 +1316,12 @@
     const syncNowBtn = document.getElementById("syncNow");
     if (syncNowBtn) syncNowBtn.addEventListener("click", async () => {
       syncNowBtn.disabled = true;
+      // the sign-in ran out (a browser's lasts an hour): renew it from this tap. Google usually just
+      // flashes its window and closes it, since ChipAway is already allowed.
+      if (SYNC.status.state === "error" && SYNC.status.code === "auth") {
+        try { await Native.googleToken({ interactive: true }); }
+        catch (e) { syncNowBtn.disabled = false; if (e.code !== "cancelled") toast(e.message, true); return; }
+      }
       await runSync();
       syncNowBtn.disabled = false;
       if (SYNC.status.state === "ok") toast("Synced.");
