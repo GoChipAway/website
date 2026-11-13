@@ -33,10 +33,22 @@ header.top nav a:hover { color: var(--text); }
 .ctas { display: flex; flex-wrap: wrap; gap: 10px; }
 .shot { justify-self: center; width: min(330px, 100%); border-radius: 34px; border: 10px solid #1f2a26; overflow: hidden; box-shadow: 0 20px 50px rgba(31, 42, 38, .18); background: #1f2a26; }
 .shot img { display: block; width: 100%; height: auto; }
-.demo { justify-self: center; width: min(340px, 100%); margin: 0; }
+.shot { margin: 0; }
+.demo { width: min(340px, 100%); margin: 0 auto; }
 .demo video { display: block; width: 100%; height: auto; aspect-ratio: 9 / 16; border-radius: 28px; background: #2f5d50; box-shadow: 0 20px 50px rgba(31, 42, 38, .2); }
 .demo figcaption { text-align: center; color: var(--muted); font-size: .92rem; margin-top: 10px; }
 
+.gallery { display: grid; grid-template-columns: repeat(4, 1fr); gap: 22px; padding: 0 0 64px; }
+.gallery figure { margin: 0; }
+.gallery img { display: block; width: 100%; height: auto; border-radius: 22px; border: 6px solid #1f2a26; background: #1f2a26; box-shadow: 0 12px 30px rgba(31, 42, 38, .14); }
+.gallery figcaption { margin-top: 12px; font-size: .95rem; color: var(--muted); }
+.gallery figcaption b { color: var(--text); font-weight: 650; }
+.pc { display: grid; grid-template-columns: .8fr 1.2fr; gap: 40px; align-items: center; padding: 0 0 64px; }
+.pc h2, .video h2 { font-size: 1.6rem; letter-spacing: -.015em; margin: 0 0 10px; }
+.pc p { color: var(--muted); margin: 0; }
+.pc figure { margin: 0; }
+.pc img { display: block; width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--line); border-top: 22px solid var(--line); box-shadow: 0 16px 40px rgba(31, 42, 38, .14); }
+.video { padding: 0 0 72px; text-align: center; }
 .features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; padding: 8px 0 64px; }
 .feature { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 22px; }
 .feature h3 { margin: 0 0 6px; font-size: 1.08rem; }
@@ -61,5 +73,8 @@ footer a { color: var(--muted); }
 @media (max-width: 760px) {
   .hero { grid-template-columns: 1fr; gap: 36px; padding: 20px 0 48px; }
   .features { grid-template-columns: 1fr; }
+  .gallery { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; gap: 16px; margin: 0 -20px; padding: 0 20px 48px; scrollbar-width: none; }
+  .gallery figure { flex: 0 0 68%; scroll-snap-align: center; }
+  .pc { grid-template-columns: 1fr; gap: 22px; padding-bottom: 48px; }
   header.top nav { gap: 14px; }
 }
