@@ -419,3 +419,11 @@ button, .btn, .tabs a, .mode, .check, .filters button, .seg button { -webkit-use
   font-size: 1.15rem; font-weight: 700; line-height: 1; cursor: pointer; padding: 0; }
 .limit .step button:active { background: var(--accent-soft); }
 
+
+/* web app, first visit: sign in or use it here */
+body.welcoming .tabs, body.welcoming [data-tab="settings"], body.welcoming .top .btn.add { visibility: hidden; }
+.welcome { max-width: 520px; margin: 32px auto; padding: 24px 22px; }
+.welcome h2 { margin: 0 0 4px; }
+.welcome-choice { margin-top: 20px; }
+.welcome-choice .btn { width: 100%; justify-content: center; }
+.welcome-choice p { margin: 8px 2px 0; }
