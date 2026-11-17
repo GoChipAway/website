@@ -428,3 +428,17 @@ body.welcoming .tabs, body.welcoming [data-tab="settings"], body.welcoming .top 
 .welcome-choice { margin-top: 20px; }
 .welcome-choice .btn { width: 100%; justify-content: center; }
 .welcome-choice p { margin: 8px 2px 0; }
+
+/* shared list (Settings) and the invite box */
+#syncCard input[type=email], #syncCard input[inputmode=numeric] { width: 100%; border: 1px solid var(--line); background: var(--surface); color: inherit; border-radius: 10px; padding: 10px 12px; font: inherit; }
+#syncCard .pad p { margin: 0 0 10px; }
+.row-btns { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
+.row-btns input { flex: 1 1 180px; }
+.set-row.row-btns { margin-top: 0; }
+.who { flex: none; width: 34px; height: 34px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+  background: var(--accent-soft, rgba(127, 127, 127, .18)); font-weight: 600; font-size: .85rem; margin-right: 10px; }
+.btn.block { width: 100%; justify-content: center; margin-top: 12px; }
+.invite-box { background: rgba(0, 0, 0, .55); padding: 16px; }
+.invite-box .card { max-width: 440px; width: 100%; }
+.invite-box h2 { margin-top: 0; }
+.invite-box .small { margin: 6px 2px 0; }

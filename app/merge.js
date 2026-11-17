@@ -13,14 +13,14 @@
  * - a field with no timestamp counts as older than any timestamped change (time 0)
  * - an exact tie (same timestamp, different value) goes to the larger value as text, so both sides agree
  * - settings: each one carries its own updated_at; newer wins
- * - device_id stays this device's own; next_seq moves past every seq either side has handed out
+ * - device_id and cloud (this device's sync bookkeeping) stay this device's own; next_seq moves past every seq either side has handed out
  *
  * Photo files are not in the list itself: photoIdsToFetch() says which ones this device is missing.
  */
 (function (root) {
   "use strict";
 
-  const COLLECTIONS = ["items", "deps", "photos"];
+  const COLLECTIONS = ["items", "deps", "photos", "assigns"];
   const NOT_FIELDS = new Set(["id", "_ts"]);
 
   const ts = (rec, f) => (rec && rec._ts && typeof rec._ts[f] === "number" ? rec._ts[f] : 0);
@@ -71,9 +71,10 @@
       schema: Math.max(mine.schema || 1, theirs.schema || 1),
       device_id: mine.device_id,
       next_seq: 1,
-      items: {}, deps: {}, photos: {},
+      items: {}, deps: {}, photos: {}, assigns: {},
       settings: mergeSettings(mine.settings, theirs.settings),
     };
+    if (mine.cloud) doc.cloud = mine.cloud;
     for (const c of COLLECTIONS) {
       const A = mine[c] || {}, B = theirs[c] || {};
       for (const id of new Set([...Object.keys(A), ...Object.keys(B)])) {
@@ -82,7 +83,7 @@
     }
     const maxSeq = Object.values(doc.items).reduce((m, i) => Math.max(m, Number(i.seq) || 0), 0);
     doc.next_seq = Math.max(mine.next_seq || 1, theirs.next_seq || 1, maxSeq + 1);
-    const body = (d) => JSON.stringify({ schema: d.schema, items: d.items, deps: d.deps, photos: d.photos, settings: d.settings }, sortedKeys);
+    const body = (d) => JSON.stringify({ schema: d.schema, items: d.items, deps: d.deps, photos: d.photos, assigns: d.assigns || {}, settings: d.settings }, sortedKeys);
     const merged = body(doc);
     return { doc, changedMine: merged !== body(mine), changedTheirs: merged !== body(theirs) };
   }
@@ -98,7 +99,7 @@
     return Object.values(doc.photos || {}).filter((p) => !p.deleted_at && !haveFile(p.id)).map((p) => p.id);
   }
 
-  const api = { mergeDocs, mergeRecord, mergeSettings, photoIdsToFetch };
+  const api = { mergeDocs, mergeRecord, mergeSettings, photoIdsToFetch, sortedKeys, COLLECTIONS };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.FeasibleMerge = api;
 })(typeof self !== "undefined" ? self : this);

@@ -150,57 +150,175 @@
   }
   const madeOrder = (a, b) => S.rank[a.id] - S.rank[b.id];
 
-  // ---------- sync with Google Drive (optional; off until the person signs in) ----------
-  // The list and photos also live in the person's own Google Drive, in a folder only ChipAway can see,
-  // so the web companion on a PC shows the same list. Sync runs when the app opens, when it comes back
-  // to the screen, and a few seconds after each change (sync.js).
-  const SYNC = { on: recall("sync.on", false), email: recall("sync.email", ""), syncer: null, status: { state: "idle" } };
-  const syncFolder = () => new FeasibleSync.DriveFolder(() => Native.googleToken({ interactive: false }));
-  async function startSync() {
-    if (!dataStore) await api("/api/items");
-    SYNC.syncer = new FeasibleSync.Syncer(dataStore, syncFolder(), {
-      onStatus: (st) => { SYNC.status = st; if (route().name === "settings") drawSyncStatus(); },
+  // ---------- shared lists (optional; off until the person signs in) ----------
+  // Signed in, the list lives in a shared list ("household") on ChipAway's server too, so it's on every phone
+  // and computer of everyone in it. Sync runs when the app opens, when it comes back to the screen, a few seconds
+  // after each change, and every so often while the app is open and the list is shared (cloud.js).
+  const POLL_MS = 20000;
+  const CLOUD = {
+    auth: null, household: null, members: [], invites: [], sent: [],
+    syncer: null, status: { state: "idle" }, poll: null, starting: null,
+  };
+  const me = () => (CLOUD.auth && CLOUD.auth.userId) || null;
+  const signedIn = () => !!(CLOUD.auth && CLOUD.auth.signedIn);
+  const shared = () => CLOUD.members.length > 1;
+  try {
+    CLOUD.auth = new FeasibleAuth.CloudAuth({ url: Native.cloud.url, key: Native.cloud.key, storage: localStorage });
+  } catch (e) { CLOUD.auth = null; }
+
+  function redrawCloud() { if (route().name === "settings") renderSettings(); }
+
+  /** After signing in (or opening the app signed in): find the household, offer any invites, start syncing. */
+  async function startCloud({ quietInvites = false } = {}) {
+    if (!signedIn()) return;
+    if (CLOUD.starting) return CLOUD.starting;
+    CLOUD.starting = (async () => {
+      try {
+        if (!dataStore) await api("/api/items");
+        CLOUD.status = { state: "syncing" };
+        CLOUD.household = await CLOUD.auth.rpc("ensure_household", { my_name: CLOUD.auth.displayName });
+        await loadHousehold();
+        if (!quietInvites && CLOUD.invites.length && !shared()) {
+          stopSyncer();
+          return offerInvite(CLOUD.invites[0]);
+        }
+        startSyncer();
+        await runSync();
+      } catch (e) {
+        CLOUD.status = { state: "error", code: e.code || "other", message: e.message };
+        if (e.code === "auth") CLOUD.auth.forget();
+      } finally {
+        CLOUD.starting = null;
+        redrawCloud();
+      }
+    })();
+    return CLOUD.starting;
+  }
+
+  async function loadHousehold() {
+    const [members, invites, sent, house] = await Promise.all([
+      CLOUD.auth.get(`members?select=user_id,role,name,email,joined_at&household_id=eq.${CLOUD.household}&order=joined_at`),
+      CLOUD.auth.rpc("my_invites"),
+      CLOUD.auth.get(`invites?select=id,email,expires_at&household_id=eq.${CLOUD.household}&accepted_at=is.null&order=created_at`),
+      CLOUD.auth.get(`households?select=name,plan&id=eq.${CLOUD.household}`),
+    ]);
+    CLOUD.members = members || [];
+    CLOUD.invites = (invites || []).filter((i) => i.household_id !== CLOUD.household);
+    CLOUD.sent = (sent || []).filter((i) => new Date(i.expires_at) > new Date());
+    CLOUD.houseName = (house && house[0] && house[0].name) || "Our list";
+    store("cloud.members", CLOUD.members.map((m) => ({ user_id: m.user_id, name: m.name, email: m.email })));
+  }
+
+  function startSyncer() {
+    stopSyncer();
+    const remote = new FeasibleCloud.SupabaseRemote({
+      url: Native.cloud.url, key: Native.cloud.key, household: CLOUD.household, getToken: (fresh) => CLOUD.auth.token(fresh),
     });
-    dataStore.onSaved = () => SYNC.syncer && SYNC.syncer.soon();
-    return runSync();
+    CLOUD.syncer = new FeasibleCloud.CloudSyncer(dataStore, remote, {
+      onStatus: (st) => { CLOUD.status = st; drawSyncStatus(); },
+    });
+    dataStore.onSaved = () => CLOUD.syncer && CLOUD.syncer.soon();
+    CLOUD.poll = setInterval(() => {
+      if (CLOUD.syncer && shared() && document.visibilityState !== "hidden") runSync();
+    }, POLL_MS);
   }
-  function stopSync() {
-    if (Native.forgetWebToken) Native.forgetWebToken();
-    if (SYNC.syncer) clearTimeout(SYNC.syncer.timer);
-    SYNC.syncer = null;
+  function stopSyncer() {
+    if (CLOUD.syncer) CLOUD.syncer.stop();
+    clearInterval(CLOUD.poll);
+    CLOUD.syncer = null; CLOUD.poll = null;
     if (dataStore) dataStore.onSaved = null;
-    SYNC.on = false; SYNC.email = ""; SYNC.status = { state: "idle" };
-    store("sync.on", false); store("sync.email", "");
   }
+
   async function runSync() {
-    if (!SYNC.syncer) return false;
+    if (!CLOUD.syncer) return false;
     try {
-      const changed = await SYNC.syncer.now();
+      const changed = await CLOUD.syncer.now();
       if (changed) {
         absorb(dataStore.fullView());
         const name = route().name;
-        if (name !== "new" && name !== "edit") render(); // never redraw a form someone is typing in
+        if (name !== "new" && name !== "edit" && name !== "settings") render(); // never redraw a form someone is typing in
       }
       return changed;
-    } catch (e) { return false; } // shown on the Settings page; the list here is untouched
+    } catch (e) {
+      if (e.code === "removed") { stopSyncer(); toast("You're no longer in that shared list. Your list is still here.", true); startCloud({ quietInvites: true }); }
+      if (e.code === "auth") { stopSyncer(); CLOUD.auth.forget(); redrawCloud(); }
+      return false; // shown on the Settings page; the list here is untouched
+    }
   }
-  window.addEventListener("chipaway:resume", () => { if (SYNC.syncer) runSync(); });
+  window.addEventListener("chipaway:resume", () => { if (CLOUD.syncer) { runSync(); loadHousehold().catch(() => {}); } });
 
-  /** Google's sign-in (from a tap), then turn sync on and run the first round. Resolves to whether it synced. */
-  async function signInWithGoogle(onStarted = () => {}) {
-    const token = await Native.googleToken({ interactive: true });
-    let email = "";
-    try { email = (await (await fetch("https://www.googleapis.com/oauth2/v3/userinfo", { headers: { Authorization: `Bearer ${token}` } })).json()).email || ""; } catch (e) { /* shown without it */ }
-    SYNC.on = true; SYNC.email = email || SYNC.email;
-    store("sync.on", true); store("sync.email", SYNC.email);
-    SYNC.status = { state: "syncing" };
-    onStarted();
-    await startSync();
-    return SYNC.status.state === "ok";
+  /** Someone invited this person: join (bringing their list, or starting fresh), or not now. */
+  function offerInvite(inv) {
+    const n = S.items.length;
+    const host = inv.invited_by_name || "Someone";
+    const box = document.createElement("div");
+    box.className = "viewer invite-box";
+    box.innerHTML = `<div class="card pad">
+      <h2>Join ${esc(host)}'s list?</h2>
+      <p>${esc(host)} invited you to share “${esc(inv.household_name)}”. Everyone in it sees and edits the same items, links, moods and photos.</p>
+      ${n ? `<button class="btn primary block" data-join="bring">Join and bring my ${n} item${n === 1 ? "" : "s"}</button>
+      <p class="small muted">Your items are added to the shared list.</p>
+      <button class="btn block" data-join="fresh">Join and start fresh</button>
+      <p class="small muted">Your list here is saved as a backup on this ${Native.isApp ? "phone" : "computer"} first, then only the shared list is shown.</p>`
+      : `<button class="btn primary block" data-join="bring">Join</button>`}
+      <button class="btn block" data-join="later">Not now</button>
+      <button type="button" data-act="close" hidden></button>
+    </div>`;
+    document.body.append(box);
+    const close = () => box.remove();
+    box.querySelector('[data-act="close"]').addEventListener("click", () => { close(); startSyncerAfterNo(); });
+    box.querySelectorAll("[data-join]").forEach((b) => b.addEventListener("click", async () => {
+      const how = b.dataset.join;
+      if (how === "later") { close(); startSyncerAfterNo(); return; }
+      box.querySelectorAll("button").forEach((x) => (x.disabled = true));
+      try {
+        if (how === "fresh") absorb(await dataStore.startFresh());
+        CLOUD.household = await CLOUD.auth.rpc("accept_invite", { invite_id: inv.invite_id, my_name: CLOUD.auth.displayName, bring_items: how === "bring" });
+        await loadHousehold();
+        close();
+        startSyncer();
+        await runSync();
+        absorb(dataStore.fullView());
+        render();
+        toast(`You're in ${host}'s list.`);
+      } catch (e) {
+        box.querySelectorAll("button").forEach((x) => (x.disabled = false));
+        toast(e.message, true);
+      }
+    }));
+  }
+  function startSyncerAfterNo() { startSyncer(); runSync().then(redrawCloud); }
+
+  async function signInWithGoogle() {
+    if (!Native.isApp) {
+      store("cloud.returnTo", location.hash || "#/settings");
+      location.href = CLOUD.auth.googleRedirectURL(location.origin + location.pathname);
+      return new Promise(() => {}); // leaving for Google
+    }
+    const { idToken, nonce } = await Native.googleIdToken();
+    await CLOUD.auth.signInWithGoogle(idToken, nonce);
+    await startCloud();
+  }
+
+  async function signOut() {
+    stopSyncer();
+    await CLOUD.auth.signOut();
+    CLOUD.household = null; CLOUD.members = []; CLOUD.invites = []; CLOUD.sent = []; CLOUD.status = { state: "idle" };
+    store("cloud.members", []);
+  }
+
+  // Back from Google's sign-in in a browser: the session is in the address.
+  async function finishRedirect() {
+    if (!CLOUD.auth || !/access_token=|error_description=/.test(location.hash)) return false;
+    const hash = location.hash;
+    history.replaceState(null, "", location.pathname + recall("cloud.returnTo", "#/settings"));
+    try { if (await CLOUD.auth.fromRedirect(hash)) { store("web.welcomed", true); return true; } }
+    catch (e) { setTimeout(() => toast(e.message, true), 300); }
+    return false;
   }
 
   // ---------- first visit to the web app: sign in, or just use it in this browser ----------
-  const needsWelcome = () => !Native.isApp && Native.canSignIn && !SYNC.on && !recall("web.welcomed", false);
+  const needsWelcome = () => !Native.isApp && CLOUD.auth && !signedIn() && !recall("web.welcomed", false);
   function renderWelcome() {
     setTabs("");
     document.body.classList.add("welcoming");
@@ -208,29 +326,21 @@
       <h2>Welcome to ChipAway</h2>
       <p class="muted">How do you want to use it here?</p>
       <div class="welcome-choice">
-        <button class="btn primary" id="wSignIn">Sign in with Google</button>
-        <p class="small muted">See the same list as ChipAway on your phone. It syncs through your own Google Drive, in a folder only ChipAway can see. Turn on sync in the phone app too (Settings → Sync).</p>
+        <button class="btn primary" id="wGoogle">Sign in with Google</button>
+        <button class="btn" id="wEmail">Sign in with email</button>
+        <p class="small muted">See the same list as ChipAway on your phone, and share it with your household. Sign in on the phone too (Settings, Shared list).</p>
       </div>
       <div class="welcome-choice">
         <button class="btn" id="wLocal">Use it without signing in</button>
         <p class="small muted">Your list is kept only in this browser. It isn't on your phone, and clearing your browser's data erases it. You can sign in later in Settings.</p>
       </div>
     </div>`;
-    const done = () => { store("web.welcomed", true); document.body.classList.remove("welcoming"); location.hash = "#/plan"; render(); };
-    document.getElementById("wLocal").addEventListener("click", done);
-    const b = document.getElementById("wSignIn");
-    b.addEventListener("click", async () => {
-      b.disabled = true;
-      try {
-        const ok = await signInWithGoogle();
-        done();
-        toast(ok ? "Syncing with Google Drive." : syncStatusText(), !ok);
-      } catch (e) {
-        b.disabled = false;
-        if (e.code !== "cancelled") toast(e.message, true);
-      }
-    });
+    const done = (to = "#/plan") => { store("web.welcomed", true); document.body.classList.remove("welcoming"); location.hash = to; render(); };
+    document.getElementById("wLocal").addEventListener("click", () => done());
+    document.getElementById("wEmail").addEventListener("click", () => { EMAIL.open = true; done("#/settings"); });
+    document.getElementById("wGoogle").addEventListener("click", () => signInWithGoogle().catch((e) => toast(e.message, true)));
   }
+
   const agoShort = (ms) => {
     const s = Math.round((Date.now() - ms) / 1000);
     if (s < 60) return "just now";
@@ -238,20 +348,130 @@
     return new Date(ms).toLocaleString(undefined, { hour: "numeric", minute: "2-digit", month: "short", day: "numeric" });
   };
   function syncStatusText() {
-    const st = SYNC.status;
+    const st = CLOUD.status;
     if (st.state === "syncing") return "Syncing…";
     if (st.state === "error") {
-      if (st.code === "auth") return "Paused: sign in again to keep syncing.";
+      if (st.code === "auth") return "Signed out: sign in again to keep syncing.";
       return st.message || "Couldn't sync. It'll try again next time.";
     }
-    if (SYNC.syncer && SYNC.syncer.lastSynced) return `Synced ${agoShort(SYNC.syncer.lastSynced)}.`;
+    if (CLOUD.syncer && CLOUD.syncer.lastSynced) return `Synced ${agoShort(CLOUD.syncer.lastSynced)}.`;
     return "Not synced yet.";
   }
   function drawSyncStatus() {
     const el = document.getElementById("syncStatus");
     if (el) el.textContent = syncStatusText();
-    const again = document.getElementById("syncAgain");
-    if (again) again.hidden = !(SYNC.status.state === "error" && SYNC.status.code === "auth");
+  }
+
+  // email sign-in, step by step, kept while Settings redraws
+  const EMAIL = { open: false, email: "", sent: false, busy: false };
+
+  function initials(m) {
+    const n = (m.name || m.email || "?").trim();
+    const parts = n.split(/[\s@.]+/).filter(Boolean);
+    return ((parts[0] || "?")[0] + (parts.length > 1 && m.name ? parts[1][0] : "")).toUpperCase();
+  }
+  const memberName = (m) => (m.user_id === me() ? "You" : m.name || m.email);
+
+  function cloudCardHTML() {
+    const where = Native.isApp ? "phone" : "computer";
+    if (!CLOUD.auth) return `<div class="set-row"><div class="t">Shared lists aren't available here</div></div>`;
+    if (!signedIn()) {
+      if (EMAIL.open) {
+        return `<div class="pad">
+          ${EMAIL.sent ? `<p>We emailed a 6-digit code to <b>${esc(EMAIL.email)}</b>.</p>
+            <input id="emailCode" inputmode="numeric" autocomplete="one-time-code" placeholder="123456" maxlength="10">
+            <div class="row-btns"><button class="btn primary" id="emailVerify">Sign in</button><button class="btn" id="emailBack">Use another email</button></div>
+            <p class="small muted">No email? Check spam, or wait a minute and <a href="#" id="emailResend">send another code</a>.</p>`
+          : `<p>Sign in with your email address. We'll email you a 6-digit code; no password.</p>
+            <input id="emailAddr" type="email" autocomplete="email" placeholder="you@example.com" value="${esc(EMAIL.email)}">
+            <div class="row-btns"><button class="btn primary" id="emailSend">Send code</button><button class="btn" id="emailCancel">Cancel</button></div>`}
+        </div>`;
+      }
+      return `<div class="set-row"><div class="t">Share your list<div class="sub">Sign in to keep your list and photos on ChipAway's server too, use it on a computer at gochipaway.com/app, and share it with your household. Optional: without it everything stays on this ${where}.</div></div></div>
+        <div class="set-row row-btns"><button class="btn primary" id="cloudGoogle">Sign in with Google</button><button class="btn" id="cloudEmail">Sign in with email</button></div>`;
+    }
+    const owner = CLOUD.members.some((m) => m.user_id === me() && m.role === "owner");
+    const people = CLOUD.members.map((m) => `<div class="set-row"><span class="who" aria-hidden="true">${esc(initials(m))}</span><div class="t">${esc(memberName(m))}${m.role === "owner" ? ' <span class="muted small">owner</span>' : ""}<div class="sub">${esc(m.email)}</div></div>${owner && m.user_id !== me() ? `<button class="btn" data-remove="${esc(m.user_id)}">Remove</button>` : ""}</div>`).join("");
+    const pending = CLOUD.sent.map((i) => `<div class="set-row"><div class="t">${esc(i.email)}<div class="sub">Invited · waiting for them to sign in</div></div>${owner ? `<button class="btn" data-uninvite="${esc(i.id)}">Cancel</button>` : ""}</div>`).join("");
+    const incoming = CLOUD.invites.map((i) => `<div class="set-row"><div class="t">${esc(i.invited_by_name || "Someone")} invited you<div class="sub">to “${esc(i.household_name)}”</div></div><button class="btn primary" data-offer="${esc(i.invite_id)}">See invite</button></div>`).join("");
+    return `<div class="set-row"><div class="t">Signed in<div class="sub">${esc(CLOUD.auth.email)} · <span id="syncStatus">${esc(syncStatusText())}</span></div></div><button class="btn" id="syncNow">Sync now</button></div>
+      ${incoming}
+      <div class="set-row"><div class="t">${esc(CLOUD.houseName || "Your list")}<div class="sub">${shared() ? `Shared by ${CLOUD.members.length} people` : "Just you so far"}</div></div></div>
+      ${people}${pending}
+      ${owner ? `<div class="pad"><label class="small muted" for="inviteEmail">Invite someone by email</label>
+        <div class="row-btns"><input id="inviteEmail" type="email" autocomplete="off" placeholder="their@email.com"><button class="btn primary" id="inviteSend">Invite</button></div></div>` : ""}
+      ${shared() ? `<div class="set-row"><div class="t">Leave this list<div class="sub">You keep a copy of everything on this ${where}, as your own list.</div></div><button class="btn" id="cloudLeave">Leave</button></div>` : ""}
+      <div class="set-row"><div class="t">Sign out<div class="sub">Everything stays on this ${where}. It just stops syncing.</div></div><button class="btn" id="cloudOut">Sign out</button></div>`;
+  }
+
+  function wireCloudCard() {
+    const on = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener("click", fn); };
+    const busy = async (btn, fn) => {
+      if (btn) btn.disabled = true;
+      try { await fn(); } catch (e) { if (e.code !== "cancelled") toast(e.message, true); }
+      finally { if (btn && btn.isConnected) btn.disabled = false; }
+    };
+    on("cloudGoogle", (e) => busy(e.currentTarget, async () => { await signInWithGoogle(); renderSettings(); }));
+    on("cloudEmail", () => { EMAIL.open = true; renderSettings(); });
+    on("emailCancel", () => { EMAIL.open = false; renderSettings(); });
+    on("emailBack", () => { EMAIL.sent = false; renderSettings(); });
+    on("emailSend", (e) => busy(e.currentTarget, async () => {
+      EMAIL.email = await CLOUD.auth.sendCode(document.getElementById("emailAddr").value);
+      EMAIL.sent = true; renderSettings();
+      const c = document.getElementById("emailCode"); if (c) c.focus();
+    }));
+    on("emailResend", (e) => { e.preventDefault(); busy(null, async () => { await CLOUD.auth.sendCode(EMAIL.email); toast("Sent another code."); }); });
+    on("emailVerify", (e) => busy(e.currentTarget, async () => {
+      await CLOUD.auth.verifyCode(EMAIL.email, document.getElementById("emailCode").value);
+      Object.assign(EMAIL, { open: false, sent: false });
+      renderSettings();
+      await startCloud();
+    }));
+    on("syncNow", (e) => busy(e.currentTarget, async () => {
+      await loadHousehold();
+      if (!CLOUD.syncer) startSyncer();
+      await runSync();
+      renderSettings();
+      if (CLOUD.status.state === "ok") toast("Synced.");
+    }));
+    on("inviteSend", (e) => busy(e.currentTarget, async () => {
+      const email = document.getElementById("inviteEmail").value.trim();
+      await CLOUD.auth.rpc("invite", { to_email: email });
+      await loadHousehold();
+      renderSettings();
+      const body = `I'm using ChipAway to plan house projects. I've invited you to share our list.\n\n` +
+        `1. Get ChipAway: on Android from the Play Store, or on a computer at https://gochipaway.com/app\n` +
+        `2. Sign in with this email address (${email}), with Google or with an email code.\n` +
+        `3. You'll be asked to join my list.\n`;
+      if (!window.__chipawayNoMail) location.href = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent("Join my ChipAway list")}&body=${encodeURIComponent(body)}`;
+      toast(`Invited ${email}. Send them the email that just opened.`);
+    }));
+    document.querySelectorAll("[data-uninvite]").forEach((b) => b.addEventListener("click", () => busy(b, async () => {
+      await CLOUD.auth.rpc("cancel_invite", { invite_id: b.dataset.uninvite }); await loadHousehold(); renderSettings();
+    })));
+    document.querySelectorAll("[data-remove]").forEach((b) => b.addEventListener("click", () => {
+      if (b.dataset.armed !== "1") { b.dataset.armed = "1"; b.textContent = "Tap again"; return; }
+      busy(b, async () => { await CLOUD.auth.rpc("remove_member", { who: b.dataset.remove }); await loadHousehold(); renderSettings(); });
+    }));
+    document.querySelectorAll("[data-offer]").forEach((b) => b.addEventListener("click", () => {
+      const inv = CLOUD.invites.find((i) => i.invite_id === b.dataset.offer);
+      if (inv) { stopSyncer(); offerInvite(inv); }
+    }));
+    on("cloudLeave", (e) => {
+      const b = e.currentTarget;
+      if (b.dataset.armed !== "1") { b.dataset.armed = "1"; b.textContent = "Tap again to leave"; return; }
+      busy(b, async () => {
+        stopSyncer();
+        await CLOUD.auth.rpc("leave_household");
+        await startCloud({ quietInvites: true }); // a list of your own again, with everything that's here
+        toast("You left. Everything is still here, as your own list.");
+      });
+    });
+    on("cloudOut", (e) => busy(e.currentTarget, async () => {
+      await signOut();
+      toast("Signed out. Everything is still here.");
+      renderSettings();
+    }));
   }
 
   // ---------- item helpers ----------
@@ -1231,16 +1451,8 @@
         <p class="pad" style="margin:0;padding-bottom:4px">It ranks by priority, then bumps things you've already started (finish what you started) and things that free up other work. It only suggests things you can start right now; anything waiting on something else shows up under <b>Show everything</b>. <b>Fit my time &amp; money</b> fills your limits from the top. Blank cost counts as free and blank time counts as quick.</p>
         <dl class="modes-help">${MODE_ORDER.map((m) => `<dt>${esc(S.modes[m] || m)}</dt><dd data-hint="${m}">${modeHint(m)}</dd>`).join("")}</dl>
       </div>
-      <h3>Sync</h3>
-      <div class="card" id="syncCard">${SYNC.on ? `
-        <div class="set-row"><div class="t">Syncing with Google Drive<div class="sub">${esc(SYNC.email)} · <span id="syncStatus">${esc(syncStatusText())}</span></div></div><button class="btn" id="syncNow">Sync now</button></div>
-        <div class="set-row" id="syncAgain" ${SYNC.status.state === "error" && SYNC.status.code === "auth" ? "" : "hidden"}><div class="t">Sign in again<div class="sub">Sync is paused until you do.${Native.isApp ? "" : " In a browser, Google's sign-in lasts about an hour."}</div></div><button class="btn primary" id="syncSignIn">Sign in</button></div>
-        <div class="set-row"><div class="t">Stop syncing<div class="sub">Everything stays on this ${Native.isApp ? "phone" : "computer"}. The copy in Google Drive stays too, until you delete it.</div></div><button class="btn" id="syncStop">Stop</button></div>
-        <div class="set-row"><div class="t">Delete my cloud copy<div class="sub">Removes ChipAway's list and photos from your Google Drive and stops syncing. Nothing here is deleted.</div></div><button class="btn danger" id="syncDelete">Delete</button></div>`
-      : `
-        <div class="set-row"><div class="t">Sync with Google Drive<div class="sub">Keep your list and photos in your own Google Drive too, in a folder only ChipAway can see, and see them on a computer at gochipaway.com/app. Optional: without it everything stays on this ${Native.isApp ? "phone" : "computer"}.</div></div>
-          <button class="btn primary" id="syncSignIn" ${Native.canSignIn ? "" : "disabled"}>Sign in with Google</button></div>`}
-      </div>
+      <h3>Shared list</h3>
+      <div class="card" id="syncCard">${cloudCardHTML()}</div>
       <h3>Your data</h3>
       <div class="card">
         <div class="set-row"><div class="t">Export to spreadsheet<div class="sub">Your whole list as a CSV file for Excel or Google Sheets.</div></div><button class="btn" id="exportCsv">Export CSV</button></div>
@@ -1248,7 +1460,7 @@
         <div class="set-row"><div class="t">Import or restore<div class="sub">A ChipAway backup file. Replaces everything here; what's here now is kept as a safety copy first.</div></div>
           <label class="btn">Choose file…<input type="file" id="restore" hidden></label></div>
       </div>
-      <p class="muted small" style="margin-top:14px">${SYNC.on ? `Everything is stored on this ${Native.isApp ? "phone" : "computer"} and in your Google Drive. Nothing is sent anywhere else.` : Native.isApp ? "Everything is stored on this phone. Nothing is sent anywhere unless you back it up, share it or turn on sync." : "Everything is stored only in this browser. Clearing the browser's data erases it, so back it up or turn on sync."}</p>
+      <p class="muted small" style="margin-top:14px">${signedIn() ? `Everything is stored on this ${Native.isApp ? "phone" : "computer"} and on ChipAway's server, where only the people in your list can see it.` : Native.isApp ? "Everything is stored on this phone. Nothing is sent anywhere unless you back it up, share it or sign in." : "Everything is stored only in this browser. Clearing the browser's data erases it, so back it up or sign in."}</p>
       <h3>About</h3>
       <div class="card">
         <a class="set-row link-row" href="https://gochipaway.com/privacy/"><div class="t">Privacy policy</div><span class="muted">›</span></a>
@@ -1299,50 +1511,8 @@
       try { await api("/api/settings", { method: "DELETE" }); toast("Back to 2 hours"); renderSettings(); }
       catch (err) { toast(err.message, true); }
     });
-    // ---- sync ----
-    const signIn = document.getElementById("syncSignIn");
-    if (signIn) signIn.addEventListener("click", async () => {
-      signIn.disabled = true;
-      try {
-        const ok = await signInWithGoogle(() => renderSettings());
-        if (ok) toast("Syncing with Google Drive.");
-        else toast(syncStatusText(), true);
-        renderSettings();
-      } catch (e) {
-        signIn.disabled = false;
-        if (e.code !== "cancelled") toast(e.message, true);
-      }
-    });
-    const syncNowBtn = document.getElementById("syncNow");
-    if (syncNowBtn) syncNowBtn.addEventListener("click", async () => {
-      syncNowBtn.disabled = true;
-      // the sign-in ran out (a browser's lasts an hour): renew it from this tap. Google usually just
-      // flashes its window and closes it, since ChipAway is already allowed.
-      if (SYNC.status.state === "error" && SYNC.status.code === "auth") {
-        try { await Native.googleToken({ interactive: true }); }
-        catch (e) { syncNowBtn.disabled = false; if (e.code !== "cancelled") toast(e.message, true); return; }
-      }
-      await runSync();
-      syncNowBtn.disabled = false;
-      if (SYNC.status.state === "ok") toast("Synced.");
-    });
-    const syncStop = document.getElementById("syncStop");
-    if (syncStop) syncStop.addEventListener("click", () => {
-      stopSync();
-      toast("Sync is off. Everything is still here.");
-      renderSettings();
-    });
-    const syncDel = document.getElementById("syncDelete");
-    if (syncDel) syncDel.addEventListener("click", async () => {
-      if (syncDel.dataset.armed !== "1") { syncDel.dataset.armed = "1"; syncDel.textContent = "Tap again to delete"; return; }
-      syncDel.disabled = true;
-      try {
-        await syncFolder().removeAll();
-        stopSync();
-        toast("Your cloud copy is deleted. Everything is still on this phone.");
-        renderSettings();
-      } catch (e) { syncDel.disabled = false; toast(e.message || "Couldn't delete it. Try again.", true); }
-    });
+    // ---- shared list ----
+    wireCloudCard();
 
     const stamp = () => today();
     document.getElementById("exportCsv").addEventListener("click", async () => {
@@ -1375,7 +1545,7 @@
           const n = Object.values(doc.items).filter((i) => !i.deleted_at).length;
           what = `the backup from ${fmtDate(j.exported_at)} (${n} item${n === 1 ? "" : "s"}, ${Object.keys(photos).length} photo${Object.keys(photos).length === 1 ? "" : "s"})`;
         }
-        const syncNote = SYNC.on ? "\n\nSync is on: anything in your Google Drive copy that isn't in this backup will come back on the next sync. To start over from the backup, stop syncing and delete your cloud copy first." : "";
+        const syncNote = signedIn() ? "\n\nYou're signed in: anything in the shared list that isn't in this backup stays in the shared list and comes back here on the next sync." : "";
         if (!confirm(`Replace everything here with ${what}?${syncNote}`)) return;
         absorb(await dataStore.restoreDoc(doc, photos));
         await dataStore.adapter.warm(Object.keys(dataStore.doc.photos));
@@ -1394,6 +1564,8 @@
   }
 
   applyTheme();
-  render();
-  if (SYNC.on) startSync();
+  finishRedirect().then(() => {
+    render();
+    if (signedIn()) startCloud();
+  });
 })();

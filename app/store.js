@@ -46,7 +46,7 @@
   const notFound = (msg = "Not found") => { throw new ApiError(404, msg); };
 
   function emptyDoc() {
-    return { schema: SCHEMA, device_id: uuid(), next_seq: 1, items: {}, deps: {}, photos: {}, settings: {} };
+    return { schema: SCHEMA, device_id: uuid(), next_seq: 1, items: {}, deps: {}, photos: {}, assigns: {}, settings: {} };
   }
 
   // =====================================================================
@@ -85,6 +85,7 @@
 
     /** Bring older data up to date. Returns true if anything changed. */
     upgrade() {
+      if (!this.doc.assigns) this.doc.assigns = {}; // who's doing what (shared lists); older lists have none yet
       let changed = this.flattenSteps() > 0;
       // Lazy day merged into Quick wins (Nov 2026) and Quick wins now means "easy and short".
       // An hour limit saved under the old meaning doesn't carry over, so both go back to the default.
@@ -540,12 +541,27 @@
       const old = this.doc;
       this.doc = doc;
       this.doc.device_id = old.device_id; // this is still the same device, whoever made the backup
+      delete this.doc.cloud; // a restored list syncs from scratch: everything is checked against the cloud again
       this.upgrade();
       await this.save();
       for (const p of Object.values(old.photos)) {
         if (keep.has(p.id)) continue;
         try { await this.adapter.deletePhoto(p.id); } catch (e) { /* already gone */ }
       }
+      return this.fullView();
+    }
+
+    /**
+     * Joining someone else's shared list without bringing this one along: the list here is saved as a safety
+     * copy (a backup file of its own, photos included), then emptied, so only the shared list syncs in.
+     */
+    async startFresh() {
+      await this.adapter.saveSafetyCopy(await this.backupObject(), "before-join");
+      const old = this.doc;
+      this.doc = emptyDoc();
+      this.doc.device_id = old.device_id;
+      await this.save({ quiet: true });
+      for (const p of Object.values(old.photos)) { try { await this.adapter.deletePhoto(p.id); } catch (e) { /* already gone */ } }
       return this.fullView();
     }
 
