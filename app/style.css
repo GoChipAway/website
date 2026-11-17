@@ -444,3 +444,11 @@ body.welcoming .tabs, body.welcoming [data-tab="settings"], body.welcoming .top 
 .invite-box .small { margin: 6px 2px 0; }
 .gbtn { display: inline-flex; min-height: 40px; align-items: center; }
 .welcome-choice .gbtn { display: flex; justify-content: center; margin-bottom: 8px; }
+.who.sm { width: 24px; height: 24px; font-size: .68rem; margin-right: 0; }
+.badges { display: inline-flex; gap: 2px; margin-right: 6px; flex: none; align-self: center; }
+.whos { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 10px 0 4px; }
+.whos .lbl { font-size: .85rem; font-weight: 620; margin-right: 4px; }
+.who-chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: var(--surface); color: inherit;
+  border-radius: 999px; padding: 4px 12px 4px 4px; font: inherit; font-size: .9rem; cursor: pointer; }
+.who-chip.on { border-color: var(--accent); background: var(--accent); color: var(--accent-ink); }
+.who-chip.on .who { background: rgba(255, 255, 255, .25); }

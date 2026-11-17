@@ -243,9 +243,11 @@
       const st = this.state();
       const items = L.itemView(st);
       const photos = this.photosByItem();
+      const who = this.assigneesByItem();
       for (const v of items) {
         delete v._ts; delete v.deleted_at;
         v.photos = photos[v.id] || [];
+        v.assignees = who[v.id] || [];
       }
       const areas = [...new Set(items.map((i) => i.area).filter(Boolean))].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
       return { items, areas, modes: L.MODES, settings: this.settingsValues() };
@@ -384,6 +386,7 @@
       if (!["todo", "doing", "done"].includes(status)) bad("bad status");
       if (restore && this.doc.items[id] && !this.doc.items[id].deleted_at) {
         this.setMany(this.doc.items[id], { status, started_at: restore.started_at || null, done_at: restore.done_at || null });
+        if (Array.isArray(restore.assignees)) this.setAssignees(id, restore.assignees);
         await this.save();
         return this.fullView();
       }
@@ -392,6 +395,49 @@
       if (!(status === "done" && old.status === "done")) {
         const [started, done] = this.statusTimes(old, status);
         this.setMany(this.doc.items[id], { status, started_at: started, done_at: done });
+      }
+      // shared lists: starting something puts you on it; back to To do means nobody's on it
+      if (status === "doing" && this.me) this.setAssigned(id, this.me, true);
+      if (status === "todo") this.setAssignees(id, []);
+      await this.save();
+      return this.fullView();
+    }
+
+    // ---------- who's on it (shared lists) ----------
+    // One record per person per item (id "<item>:<person>"), so two people tapping at once both end up on it.
+    assigneesByItem() {
+      const m = {};
+      for (const a of Object.values(this.doc.assigns || {})) {
+        if (a.deleted_at || !this.doc.items[a.item_id]) continue;
+        (m[a.item_id] = m[a.item_id] || []).push(a.user_id);
+      }
+      for (const k of Object.keys(m)) m[k].sort();
+      return m;
+    }
+    setAssigned(itemId, userId, on) {
+      if (!this.doc.assigns) this.doc.assigns = {};
+      const id = `${itemId}:${userId}`;
+      const ex = this.doc.assigns[id];
+      if (ex) { this.set(ex, "deleted_at", on ? null : now()); return; }
+      if (!on) return;
+      const t = now(), ms = Date.now();
+      this.doc.assigns[id] = { id, item_id: itemId, user_id: userId, created_at: t, updated_at: t, deleted_at: null, _ts: { item_id: ms, user_id: ms, deleted_at: ms } };
+    }
+    setAssignees(itemId, userIds) {
+      const want = new Set(userIds);
+      for (const a of Object.values(this.doc.assigns || {})) if (a.item_id === itemId && !a.deleted_at && !want.has(a.user_id)) this.set(a, "deleted_at", now());
+      for (const u of want) this.setAssigned(itemId, u, true);
+    }
+    /** body: { user_id, on }. Putting someone on a To do item starts it. */
+    async assign(itemId, body) {
+      const it = this.state().items[itemId];
+      if (!it) notFound();
+      const user = String((body || {}).user_id || "");
+      if (!user) bad("Who?");
+      this.setAssigned(itemId, user, !!body.on);
+      if (body.on && it.status === "todo") {
+        const [started, done] = this.statusTimes(it, "doing");
+        this.setMany(this.doc.items[itemId], { status: "doing", started_at: started, done_at: done });
       }
       await this.save();
       return this.fullView();
@@ -580,6 +626,7 @@
         if (m === "DELETE") return this.deleteItem(r[1]);
       }
       if ((r = p.match(/^\/api\/items\/([^/]+)\/status$/)) && m === "POST") return this.setStatus(r[1], (body || {}).status, (body || {}).restore);
+      if ((r = p.match(/^\/api\/items\/([^/]+)\/assign$/)) && m === "POST") return this.assign(r[1], body);
       if ((r = p.match(/^\/api\/items\/([^/]+)\/links$/)) && m === "POST") return this.addLink(r[1], body || {});
       if ((r = p.match(/^\/api\/items\/([^/]+)\/links\/([^/]+)$/)) && m === "DELETE") return this.removeLink(r[1], r[2]);
       if ((r = p.match(/^\/api\/photos\/([^/]+)$/)) && m === "DELETE") return this.deletePhoto(r[1]);

@@ -175,6 +175,7 @@
     CLOUD.starting = (async () => {
       try {
         if (!dataStore) await api("/api/items");
+        dataStore.me = me();
         CLOUD.status = { state: "syncing" };
         CLOUD.household = await CLOUD.auth.rpc("ensure_household", { my_name: CLOUD.auth.displayName });
         await loadHousehold();
@@ -317,6 +318,7 @@
 
   async function signOut() {
     stopSyncer();
+    if (dataStore) dataStore.me = null;
     await CLOUD.auth.signOut();
     CLOUD.household = null; CLOUD.members = []; CLOUD.invites = []; CLOUD.sent = []; CLOUD.status = { state: "idle" };
     store("cloud.members", []);
@@ -448,7 +450,7 @@
       await loadHousehold();
       if (!CLOUD.syncer) startSyncer();
       await runSync();
-      renderSettings();
+      redrawCloud();
       if (CLOUD.status.state === "ok") toast("Synced.");
     }));
     on("inviteSend", (e) => busy(e.currentTarget, async () => {
@@ -659,6 +661,21 @@
 
   const itemNums = (it) => `<b>${money(it.cost)}</b><span class="muted">${hrs(it.hours)}</span>`;
 
+  // ---------- who's on it (shared lists) ----------
+  const people = () => (CLOUD.members.length ? CLOUD.members : recall("cloud.members", []));
+  const personById = (uid) => people().find((m) => m.user_id === uid) || { user_id: uid, name: "", email: "Someone" };
+  const showWho = () => signedIn() && people().length > 1;
+  function badgesHTML(it) {
+    if (!showWho() || !(it.assignees || []).length || isDone(it)) return "";
+    return `<span class="badges">${it.assignees.map((u) => `<span class="who sm" title="${esc(memberName(personById(u)))}">${esc(initials(personById(u)))}</span>`).join("")}</span>`;
+  }
+  function whoHTML(it) {
+    if (!showWho()) return "";
+    const on = new Set(it.assignees || []);
+    const list = [...people()].sort((a, b) => (a.user_id === me() ? -1 : b.user_id === me() ? 1 : 0));
+    return `<div class="whos"><span class="lbl">Who's on it</span>${list.map((m) => `<button type="button" class="who-chip${on.has(m.user_id) ? " on" : ""}" data-assign="${esc(m.user_id)}" aria-pressed="${on.has(m.user_id)}"><span class="who sm" aria-hidden="true">${esc(initials(m))}</span>${esc(memberName(m))}</button>`).join("")}</div>`;
+  }
+
   function itemRow(it, { check = true, extra = "", note = "", age = false, chips = true } = {}) {
     const done = isDone(it);
     const subText = [note, age ? `added ${ago(it.created_at)}` : ""].filter(Boolean).join(" · ");
@@ -666,7 +683,7 @@
     return `<div class="item${done ? " is-done" : ""}" data-open="${it.id}">
       ${check ? `<button class="check${done ? " on" : ""}" data-toggle="${it.id}" aria-label="${done ? "Mark not done" : "Mark done"}" title="${it.blocked && !done ? "Still waiting on something — you can check it off anyway" : ""}"></button>` : ""}
       <div class="body"><a class="title" href="#/item/${it.id}">${esc(it.title)}</a>${sub}${chips ? `<div class="chips">${chipsFor(it)}</div>` : ""}</div>
-      ${thumbHTML(it)}<div class="nums">${itemNums(it)}</div>${extra}
+      ${badgesHTML(it)}${thumbHTML(it)}<div class="nums">${itemNums(it)}</div>${extra}
     </div>`;
   }
 
@@ -686,7 +703,7 @@
     if (!it) return;
     const cur = isDone(it) ? "done" : it.status;
     if (cur === next) return;
-    const prev = { status: it.status, started_at: it.started_at || null, done_at: it.done_at || null };
+    const prev = { status: it.status, started_at: it.started_at || null, done_at: it.done_at || null, assignees: it.assignees || [] };
     try {
       await api(`/api/items/${id}/status`, { method: "POST", body: { status: next } });
     } catch (e) { toast(e.message, true); return; }
@@ -768,7 +785,9 @@
     const areaOpts = S.areas.map((a) => `<option ${P.area === a ? "selected" : ""}>${esc(a)}</option>`).join("");
     // what's already started: one line, tap to see them. Red-ish once you're past your limit.
     const doing = doingNow();
-    const doingBar = doing.length ? `<details class="doing-now${doing.length > S.settings.doing_limit ? " past-limit" : ""}" id="doingNow" ${recall("doingOpen", false) ? "open" : ""}>
+    // shared list: the limit is per person (what you're on, plus anything nobody's on)
+    const mine = showWho() ? doing.filter((i) => !(i.assignees || []).length || i.assignees.includes(me())) : doing;
+    const doingBar = doing.length ? `<details class="doing-now${mine.length > S.settings.doing_limit ? " past-limit" : ""}" id="doingNow" ${recall("doingOpen", false) ? "open" : ""}>
         <summary><span class="lbl">Doing now · ${doing.length}</span><span class="names">${doing.map((i) => esc(i.title)).join(", ")}</span></summary>
         <div class="card">${doing.map((i) => itemRow(i)).join("")}</div></details>` : "";
     $app.innerHTML = `
@@ -1099,6 +1118,7 @@
       <h1>${esc(it.title)}</h1>
       <div class="chips" style="margin:6px 0 10px">${chipsFor(it, { compact: true })}</div>
       <div class="row">${actions}<span class="spacer"></span><a class="btn ghost" href="#/edit/${it.id}">Edit</a></div>
+      ${whoHTML(it)}
       <div class="photos" id="photos">${(it.photos || []).map((pid, i) => `<span class="ph-wrap${i === 0 && it.photos.length > 1 ? " cover" : ""}"><img class="ph" src="${photoURL(pid)}" alt="" data-view="${pid}"></span>`).join("")}
         <div class="ph-add${(it.photos || []).length >= MAX_PHOTOS ? " hidden" : ""}">${photoPickers("ip")}</div></div>
       <div class="facts">${facts}</div>
@@ -1110,6 +1130,11 @@
 
     $app.querySelectorAll("[data-status]").forEach((b) => b.addEventListener("click", async () => {
       await changeStatus(it.id, b.dataset.status);
+    }));
+    $app.querySelectorAll("[data-assign]").forEach((b) => b.addEventListener("click", async () => {
+      const on = b.getAttribute("aria-pressed") !== "true";
+      try { await api(`/api/items/${it.id}/assign`, { method: "POST", body: { user_id: b.dataset.assign, on } }); render(); }
+      catch (e) { toast(e.message, true); }
     }));
     wirePickers(document.getElementById("photos"), async (files) => {
       const n = await addPhotos(it.id, files);
@@ -1458,7 +1483,7 @@
       </div>
       <h3>Doing</h3>
       <div class="card">
-        <div class="set-row"><div class="t">Doing at once<div class="sub">Past this, the Doing now line on the Plan page turns red.</div></div>
+        <div class="set-row"><div class="t">Doing at once<div class="sub">Past this, the Doing now line on the Plan page turns red.${showWho() ? " Each person counts their own." : ""}</div></div>
           <div class="stepper" id="doingLimit"><button type="button" data-step="-1" aria-label="Fewer">−</button>
             <input type="text" readonly value="${S.settings.doing_limit}" aria-label="Doing at once">
             <button type="button" data-step="1" aria-label="More">+</button></div></div>
