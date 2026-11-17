@@ -416,6 +416,11 @@
       ${incoming}
       <div class="set-row"><div class="t">${esc(CLOUD.houseName || "Your list")}<div class="sub">${shared() ? `Shared by ${CLOUD.members.length} people` : "Just you so far"}</div></div></div>
       ${people}${pending}
+      ${CLOUD.lastInvite ? `<div class="pad invite-note"><p class="small">ChipAway doesn't email invites. Send ${esc(CLOUD.lastInvite.email)} this yourself, by text or email:</p>
+        <textarea readonly rows="5">${esc(CLOUD.lastInvite.text)}</textarea>
+        <div class="row-btns">${navigator.share ? `<button class="btn primary" id="inviteShare">Share…</button>` : ""}<button class="btn${navigator.share ? "" : " primary"}" id="inviteCopy">Copy</button>
+          <a class="btn" href="mailto:${encodeURIComponent(CLOUD.lastInvite.email)}?subject=${encodeURIComponent("Join my ChipAway list")}&body=${encodeURIComponent(CLOUD.lastInvite.text)}">Email it</a>
+          <button class="btn" id="inviteDone">Done</button></div></div>` : ""}
       ${owner ? `<div class="pad"><label class="small muted" for="inviteEmail">Invite someone by email</label>
         <div class="row-btns"><input id="inviteEmail" type="email" autocomplete="off" placeholder="their@email.com"><button class="btn primary" id="inviteSend">Invite</button></div></div>` : ""}
       ${shared() ? `<div class="set-row"><div class="t">Leave this list<div class="sub">You keep a copy of everything on this ${where}, as your own list.</div></div><button class="btn" id="cloudLeave">Leave</button></div>` : ""}
@@ -457,14 +462,25 @@
       const email = document.getElementById("inviteEmail").value.trim();
       await CLOUD.auth.rpc("invite", { to_email: email });
       await loadHousehold();
+      CLOUD.lastInvite = {
+        email,
+        text: `I'm using ChipAway to plan house projects and invited you to share our list.\n\n` +
+          `1. Get ChipAway: on Android from the Play Store, or on a computer at https://gochipaway.com/app\n` +
+          `2. Sign in with this email address (${email}), with Google or with an email code.\n` +
+          `3. You'll be asked to join my list.`,
+      };
       renderSettings();
-      const body = `I'm using ChipAway to plan house projects. I've invited you to share our list.\n\n` +
-        `1. Get ChipAway: on Android from the Play Store, or on a computer at https://gochipaway.com/app\n` +
-        `2. Sign in with this email address (${email}), with Google or with an email code.\n` +
-        `3. You'll be asked to join my list.\n`;
-      if (!window.__chipawayNoMail) location.href = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent("Join my ChipAway list")}&body=${encodeURIComponent(body)}`;
-      toast(`Invited ${email}. Send them the email that just opened.`);
+      toast(`Invited ${email}. Let them know with the message below.`);
     }));
+    on("inviteCopy", (e) => busy(e.currentTarget, async () => {
+      await navigator.clipboard.writeText(CLOUD.lastInvite.text);
+      toast("Copied. Paste it in a text or email.");
+    }));
+    on("inviteShare", (e) => busy(e.currentTarget, async () => {
+      try { await navigator.share({ title: "Join my ChipAway list", text: CLOUD.lastInvite.text }); }
+      catch (err) { if (err.name !== "AbortError") throw err; }
+    }));
+    on("inviteDone", () => { CLOUD.lastInvite = null; renderSettings(); });
     document.querySelectorAll("[data-uninvite]").forEach((b) => b.addEventListener("click", () => busy(b, async () => {
       await CLOUD.auth.rpc("cancel_invite", { invite_id: b.dataset.uninvite }); await loadHousehold(); renderSettings();
     })));
