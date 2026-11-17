@@ -442,3 +442,5 @@ body.welcoming .tabs, body.welcoming [data-tab="settings"], body.welcoming .top 
 .invite-box .card { max-width: 440px; width: 100%; }
 .invite-box h2 { margin-top: 0; }
 .invite-box .small { margin: 6px 2px 0; }
+.gbtn { display: inline-flex; min-height: 40px; align-items: center; }
+.welcome-choice .gbtn { display: flex; justify-content: center; margin-bottom: 8px; }

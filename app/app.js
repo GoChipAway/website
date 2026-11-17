@@ -289,6 +289,21 @@
   }
   function startSyncerAfterNo() { startSyncer(); runSync().then(redrawCloud); }
 
+  /** In a browser, swap our Google buttons for Google's own (it names gochipaway.com). Ours stays if Google can't load. */
+  function googleButtons(after) {
+    if (Native.isApp || !Native.renderGoogleButton) return;
+    document.querySelectorAll("[data-gbtn]").forEach((el) => {
+      Native.renderGoogleButton(el, async ({ idToken, nonce }) => {
+        try {
+          await CLOUD.auth.signInWithGoogle(idToken, nonce);
+          store("web.welcomed", true);
+          if (after) after();
+          await startCloud();
+        } catch (e) { toast(e.message, true); }
+      }).catch(() => { /* keep our own button: it signs in through a redirect */ });
+    });
+  }
+
   async function signInWithGoogle() {
     if (!Native.isApp) {
       store("cloud.returnTo", location.hash || "#/settings");
@@ -326,7 +341,7 @@
       <h2>Welcome to ChipAway</h2>
       <p class="muted">How do you want to use it here?</p>
       <div class="welcome-choice">
-        <button class="btn primary" id="wGoogle">Sign in with Google</button>
+        <span class="gbtn" data-gbtn><button class="btn primary" id="wGoogle">Sign in with Google</button></span>
         <button class="btn" id="wEmail">Sign in with email</button>
         <p class="small muted">See the same list as ChipAway on your phone, and share it with your household. Sign in on the phone too (Settings, Shared list).</p>
       </div>
@@ -339,6 +354,7 @@
     document.getElementById("wLocal").addEventListener("click", () => done());
     document.getElementById("wEmail").addEventListener("click", () => { EMAIL.open = true; done("#/settings"); });
     document.getElementById("wGoogle").addEventListener("click", () => signInWithGoogle().catch((e) => toast(e.message, true)));
+    googleButtons(() => done("#/settings"));
   }
 
   const agoShort = (ms) => {
@@ -388,7 +404,7 @@
         </div>`;
       }
       return `<div class="set-row"><div class="t">Share your list<div class="sub">Sign in to keep your list and photos on ChipAway's server too, use it on a computer at gochipaway.com/app, and share it with your household. Optional: without it everything stays on this ${where}.</div></div></div>
-        <div class="set-row row-btns"><button class="btn primary" id="cloudGoogle">Sign in with Google</button><button class="btn" id="cloudEmail">Sign in with email</button></div>`;
+        <div class="set-row row-btns"><span class="gbtn" data-gbtn><button class="btn primary" id="cloudGoogle">Sign in with Google</button></span><button class="btn" id="cloudEmail">Sign in with email</button></div>`;
     }
     const owner = CLOUD.members.some((m) => m.user_id === me() && m.role === "owner");
     const people = CLOUD.members.map((m) => `<div class="set-row"><span class="who" aria-hidden="true">${esc(initials(m))}</span><div class="t">${esc(memberName(m))}${m.role === "owner" ? ' <span class="muted small">owner</span>' : ""}<div class="sub">${esc(m.email)}</div></div>${owner && m.user_id !== me() ? `<button class="btn" data-remove="${esc(m.user_id)}">Remove</button>` : ""}</div>`).join("");
@@ -412,6 +428,7 @@
       finally { if (btn && btn.isConnected) btn.disabled = false; }
     };
     on("cloudGoogle", (e) => busy(e.currentTarget, async () => { await signInWithGoogle(); renderSettings(); }));
+    googleButtons(() => renderSettings());
     on("cloudEmail", () => { EMAIL.open = true; renderSettings(); });
     on("emailCancel", () => { EMAIL.open = false; renderSettings(); });
     on("emailBack", () => { EMAIL.sent = false; renderSettings(); });
