@@ -220,8 +220,11 @@
       onStatus: (st) => { CLOUD.status = st; drawSyncStatus(); },
     });
     dataStore.onSaved = () => CLOUD.syncer && CLOUD.syncer.soon();
+    let ticks = 0;
     CLOUD.poll = setInterval(() => {
-      if (CLOUD.syncer && shared() && document.visibilityState !== "hidden") runSync();
+      if (!CLOUD.syncer || !shared() || document.visibilityState === "hidden") return;
+      runSync();
+      if (++ticks % 15 === 0) loadHousehold().catch(() => {}); // names and people change now and then (every 5 minutes)
     }, POLL_MS);
   }
   function stopSyncer() {
@@ -390,6 +393,10 @@
     return ((parts[0] || "?")[0] + (parts.length > 1 && m.name ? parts[1][0] : "")).toUpperCase();
   }
   const memberName = (m) => (m.user_id === me() ? "You" : m.name || m.email);
+  /** The name on item rows: what they called themselves, else the start of their email. */
+  const tagName = (m) => (m.name || "").trim() || String(m.email || "Someone").split("@")[0];
+  // changing your own name, kept while Settings redraws
+  const RENAME = { open: false };
 
   function cloudCardHTML() {
     const where = Native.isApp ? "phone" : "computer";
@@ -410,7 +417,16 @@
         <div class="set-row row-btns"><span class="gbtn" data-gbtn><button class="btn primary" id="cloudGoogle">Sign in with Google</button></span><button class="btn" id="cloudEmail">Sign in with email</button></div>`;
     }
     const owner = CLOUD.members.some((m) => m.user_id === me() && m.role === "owner");
-    const people = CLOUD.members.map((m) => `<div class="set-row"><span class="who" aria-hidden="true">${esc(initials(m))}</span><div class="t">${esc(memberName(m))}${m.role === "owner" ? ' <span class="muted small">owner</span>' : ""}<div class="sub">${esc(m.email)}</div></div>${owner && m.user_id !== me() ? `<button class="btn" data-remove="${esc(m.user_id)}">Remove</button>` : ""}</div>`).join("");
+    const people = CLOUD.members.map((m) => {
+      const mine = m.user_id === me();
+      if (mine && RENAME.open) {
+        return `<div class="pad"><label class="small muted" for="myName">Your name, as everyone in the list sees it</label>
+          <div class="row-btns"><input id="myName" type="text" maxlength="40" autocomplete="given-name" value="${esc(m.name || "")}" placeholder="Matt">
+          <button class="btn primary" id="nameSave">Save</button><button class="btn" id="nameCancel">Cancel</button></div></div>`;
+      }
+      const name = mine ? `You${m.name ? ` <span class="muted">(${esc(m.name)})</span>` : ""}` : esc(memberName(m));
+      return `<div class="set-row"><span class="who" aria-hidden="true">${esc(initials(m))}</span><div class="t">${name}${m.role === "owner" ? ' <span class="muted small">owner</span>' : ""}<div class="sub">${esc(m.email)}</div></div>${mine ? `<button class="btn" id="nameEdit">Change name</button>` : ""}${owner && !mine ? `<button class="btn" data-remove="${esc(m.user_id)}">Remove</button>` : ""}</div>`;
+    }).join("");
     const pending = CLOUD.sent.map((i) => `<div class="set-row"><div class="t">${esc(i.email)}<div class="sub">Invited · waiting for them to sign in</div></div>${owner ? `<button class="btn" data-uninvite="${esc(i.id)}">Cancel</button>` : ""}</div>`).join("");
     const incoming = CLOUD.invites.map((i) => `<div class="set-row"><div class="t">${esc(i.invited_by_name || "Someone")} invited you<div class="sub">to “${esc(i.household_name)}”</div></div><button class="btn primary" data-offer="${esc(i.invite_id)}">See invite</button></div>`).join("");
     return `<div class="set-row"><div class="t">Signed in<div class="sub">${esc(CLOUD.auth.email)} · <span id="syncStatus">${esc(syncStatusText())}</span></div></div><button class="btn" id="syncNow">Sync now</button></div>
@@ -503,6 +519,20 @@
         toast("You left. Everything is still here, as your own list.");
       });
     });
+    on("nameEdit", () => { RENAME.open = true; renderSettings(); const i = document.getElementById("myName"); if (i) { i.focus(); i.select(); } });
+    on("nameCancel", () => { RENAME.open = false; renderSettings(); });
+    const saveName = (btn) => busy(btn, async () => {
+      const name = document.getElementById("myName").value.trim().slice(0, 40);
+      if (!name) { toast("Type a name first.", true); return; }
+      await CLOUD.auth.rpc("set_my_name", { my_name: name });
+      RENAME.open = false;
+      await loadHousehold();
+      renderSettings();
+      toast("Name saved.");
+    });
+    on("nameSave", (e) => saveName(e.currentTarget));
+    const nameBox = document.getElementById("myName");
+    if (nameBox) nameBox.addEventListener("keydown", (e) => { if (e.key === "Enter") saveName(document.getElementById("nameSave")); });
     on("cloudOut", (e) => busy(e.currentTarget, async () => {
       await signOut();
       toast("Signed out. Everything is still here.");
@@ -684,7 +714,7 @@
   const showWho = () => signedIn() && people().length > 1;
   function badgesHTML(it) {
     if (!showWho() || !(it.assignees || []).length || isDone(it)) return "";
-    return `<span class="badges">${it.assignees.map((u) => `<span class="who sm" title="${esc(memberName(personById(u)))}">${esc(initials(personById(u)))}</span>`).join("")}</span>`;
+    return `<span class="badges">${it.assignees.map((u) => `<span class="who-tag" title="${esc(tagName(personById(u)))}">${esc(tagName(personById(u)))}</span>`).join("")}</span>`;
   }
   function whoHTML(it) {
     if (!showWho()) return "";
