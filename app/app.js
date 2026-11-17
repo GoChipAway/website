@@ -203,7 +203,8 @@
       CLOUD.auth.get(`invites?select=id,email,expires_at&household_id=eq.${CLOUD.household}&accepted_at=is.null&order=created_at`),
       CLOUD.auth.get(`households?select=name,plan&id=eq.${CLOUD.household}`),
     ]);
-    CLOUD.members = members || [];
+    // the owner first, then everyone else in the order they joined
+    CLOUD.members = (members || []).slice().sort((a, b) => (b.role === "owner") - (a.role === "owner"));
     CLOUD.invites = (invites || []).filter((i) => i.household_id !== CLOUD.household);
     CLOUD.sent = (sent || []).filter((i) => new Date(i.expires_at) > new Date());
     CLOUD.houseName = (house && house[0] && house[0].name) || "Our list";
