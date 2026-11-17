@@ -92,7 +92,15 @@
     async verifyCode(email, code) {
       const c = String(code || "").replace(/\s+/g, "");
       if (!/^\d{6,10}$/.test(c)) throw new AuthError("code", "The code is the 6 digits in the email.");
-      return this.keep(await this.post("/auth/v1/verify", { type: "email", email: String(email).trim().toLowerCase(), token: c }));
+      const e = String(email).trim().toLowerCase();
+      try {
+        return this.keep(await this.post("/auth/v1/verify", { type: "email", email: e, token: c }));
+      } catch (err) {
+        // a first-time address gets the "confirm sign-up" email; its code is checked as type signup on some servers
+        if (err.code !== "code") throw err;
+        try { return this.keep(await this.post("/auth/v1/verify", { type: "signup", email: e, token: c })); }
+        catch (e2) { throw err; }
+      }
     }
 
     /** idToken: Google's ID token. nonce: the raw nonce, if one was given to Google (its hash is in the token). */
