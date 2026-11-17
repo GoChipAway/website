@@ -396,7 +396,7 @@
   /** The name on item rows: what they called themselves, else the start of their email. */
   const tagName = (m) => (m.name || "").trim() || String(m.email || "Someone").split("@")[0];
   // changing your own name, kept while Settings redraws
-  const RENAME = { open: false };
+  const RENAME = { who: null };
 
   function cloudCardHTML() {
     const where = Native.isApp ? "phone" : "computer";
@@ -419,13 +419,13 @@
     const owner = CLOUD.members.some((m) => m.user_id === me() && m.role === "owner");
     const people = CLOUD.members.map((m) => {
       const mine = m.user_id === me();
-      if (mine && RENAME.open) {
-        return `<div class="pad"><label class="small muted" for="myName">Your name, as everyone in the list sees it</label>
+      if (RENAME.who === m.user_id) {
+        return `<div class="pad"><label class="small muted" for="myName">${mine ? "Your name" : `Name for ${esc(m.email)}`}, as everyone in the list sees it</label>
           <div class="row-btns"><input id="myName" type="text" maxlength="40" autocomplete="given-name" value="${esc(m.name || "")}" placeholder="Matt">
           <button class="btn primary" id="nameSave">Save</button><button class="btn" id="nameCancel">Cancel</button></div></div>`;
       }
       const name = mine ? `You${m.name ? ` <span class="muted">(${esc(m.name)})</span>` : ""}` : esc(memberName(m));
-      return `<div class="set-row"><span class="who" aria-hidden="true">${esc(initials(m))}</span><div class="t">${name}${m.role === "owner" ? ' <span class="muted small">owner</span>' : ""}<div class="sub">${esc(m.email)}</div></div>${mine ? `<button class="btn" id="nameEdit">Change name</button>` : ""}${owner && !mine ? `<button class="btn" data-remove="${esc(m.user_id)}">Remove</button>` : ""}</div>`;
+      return `<div class="set-row"><span class="who" aria-hidden="true">${esc(initials(m))}</span><div class="t">${name}${m.role === "owner" ? ' <span class="muted small">owner</span>' : ""}<div class="sub">${esc(m.email)}</div></div><div class="row-btns tight">${mine || owner ? `<button class="btn" data-rename="${esc(m.user_id)}">${mine ? "Change name" : "Rename"}</button>` : ""}${owner && !mine ? `<button class="btn" data-remove="${esc(m.user_id)}">Remove</button>` : ""}</div></div>`;
     }).join("");
     const pending = CLOUD.sent.map((i) => `<div class="set-row"><div class="t">${esc(i.email)}<div class="sub">Invited · waiting for them to sign in</div></div>${owner ? `<button class="btn" data-uninvite="${esc(i.id)}">Cancel</button>` : ""}</div>`).join("");
     const incoming = CLOUD.invites.map((i) => `<div class="set-row"><div class="t">${esc(i.invited_by_name || "Someone")} invited you<div class="sub">to “${esc(i.household_name)}”</div></div><button class="btn primary" data-offer="${esc(i.invite_id)}">See invite</button></div>`).join("");
@@ -519,13 +519,17 @@
         toast("You left. Everything is still here, as your own list.");
       });
     });
-    on("nameEdit", () => { RENAME.open = true; renderSettings(); const i = document.getElementById("myName"); if (i) { i.focus(); i.select(); } });
-    on("nameCancel", () => { RENAME.open = false; renderSettings(); });
+    document.querySelectorAll("[data-rename]").forEach((b) => b.addEventListener("click", () => {
+      RENAME.who = b.dataset.rename; renderSettings();
+      const i = document.getElementById("myName"); if (i) { i.focus(); i.select(); }
+    }));
+    on("nameCancel", () => { RENAME.who = null; renderSettings(); });
     const saveName = (btn) => busy(btn, async () => {
       const name = document.getElementById("myName").value.trim().slice(0, 40);
       if (!name) { toast("Type a name first.", true); return; }
-      await CLOUD.auth.rpc("set_my_name", { my_name: name });
-      RENAME.open = false;
+      if (RENAME.who === me()) await CLOUD.auth.rpc("set_my_name", { my_name: name });
+      else await CLOUD.auth.rpc("rename_member", { who: RENAME.who, new_name: name });
+      RENAME.who = null;
       await loadHousehold();
       renderSettings();
       toast("Name saved.");
