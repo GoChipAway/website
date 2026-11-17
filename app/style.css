@@ -443,7 +443,13 @@ body.welcoming .tabs, body.welcoming [data-tab="settings"], body.welcoming .top 
 .invite-box h2 { margin-top: 0; }
 .invite-box .small { margin: 6px 2px 0; }
 .gbtn { display: inline-flex; min-height: 40px; align-items: center; }
-.welcome-choice .gbtn { display: flex; justify-content: center; margin-bottom: 8px; }
+.gbtn.gis { background: transparent; }
+.gbtn.gis iframe { color-scheme: light; } /* else a dark page paints the iframe white behind the button */
+.welcome-choice .gbtn { display: flex; justify-content: center; margin: 0 auto 10px; width: 100%; max-width: 400px; }
+.welcome-choice .btn { max-width: 400px; margin: 0 auto; display: flex; }
+.welcome-choice p { max-width: 400px; margin-left: auto; margin-right: auto; }
+.set-row.row-btns .gbtn { flex: 1 1 220px; max-width: 400px; }
+.set-row.row-btns .gbtn + .btn { flex: 1 1 160px; max-width: 400px; min-height: 40px; }
 .who.sm { width: 24px; height: 24px; font-size: .68rem; margin-right: 0; }
 .badges { display: inline-flex; gap: 2px; margin-right: 6px; flex: none; align-self: center; }
 .whos { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 10px 0 4px; }
