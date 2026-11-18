@@ -173,7 +173,7 @@
   function redrawCloud() { if (route().name === "settings") renderSettings(); }
 
   /** After signing in (or opening the app signed in): find the household, offer any invites, start syncing. */
-  async function startCloud({ quietInvites = false } = {}) {
+  async function startCloud({ quietInvites = false, removed = false } = {}) {
     if (!signedIn()) return;
     if (CLOUD.starting) return CLOUD.starting;
     CLOUD.starting = (async () => {
@@ -182,6 +182,9 @@
         dataStore.me = me();
         CLOUD.status = { state: "syncing" };
         CLOUD.household = await CLOUD.auth.rpc("ensure_household", { my_name: CLOUD.auth.displayName });
+        const off = await afterRemoval();
+        if (off) offNote(off);
+        else if (removed) toast("You're no longer in that shared list. Your list is still here.", true);
         await loadHousehold();
         if (!quietInvites && CLOUD.invites.length && !shared()) {
           stopSyncer();
@@ -198,6 +201,62 @@
       }
     })();
     return CLOUD.starting;
+  }
+
+  /**
+   * Taken off a shared list by its owner (supabase/schema.sql, remove_member): the server already moved what was
+   * theirs alone into a list of their own. Here, the shared list this device still holds is cleared, photos too,
+   * keeping only their own items. Then their own photos' files are copied over from the old household's folder
+   * (any of their devices can do it, once). Returns true if this device's list was cleared.
+   */
+  async function afterRemoval() {
+    let rows;
+    try { rows = (await CLOUD.auth.rpc("my_removals")) || []; }
+    catch (e) { return false; } // the server doesn't know about removals yet: nothing to do
+    const was = dataStore.doc.cloud && dataStore.doc.cloud.household;
+    const hit = was && was !== CLOUD.household && rows.find((r) => r.household_id === was);
+    if (hit) {
+      await dataStore.keepOnlyMine(me(), hit.items || []);
+      absorb(dataStore.fullView());
+      LIST.cur = ""; store("curList", "");
+      CLOUD.members = []; CLOUD.lists = [];
+      store("cloud.members", []); store("cloud.lists", []);
+      const name = route().name;
+      if (name !== "new" && name !== "edit") render();
+    }
+    for (const r of rows) {
+      if (!r.photos || !r.photos.length) continue;
+      try {
+        const remote = (h) => new FeasibleCloud.SupabaseRemote({ url: Native.cloud.url, key: Native.cloud.key, household: h, getToken: (fresh) => CLOUD.auth.token(fresh) });
+        const from = remote(r.household_id), to = remote(CLOUD.household);
+        for (const id of r.photos) {
+          for (const kind of ["full", "thumb"]) {
+            let b64 = null;
+            try { b64 = await dataStore.adapter.readPhoto(id, kind); } catch (e) { b64 = null; }
+            if (!b64) b64 = await from.getPhoto(id, kind);
+            if (b64) await to.putPhoto(id, kind, b64);
+          }
+        }
+        await from.removePhotos(r.photos);
+        await CLOUD.auth.rpc("removal_photos_done", { h: r.household_id });
+      } catch (e) { /* next time */ }
+    }
+    return hit || null;
+  }
+
+  /** Tell them once why the shared list is gone from here, so an emptier list doesn't look like a bug. */
+  function offNote(r) {
+    const by = r.by_name || "the owner";
+    if (r.why === "left") { toast(`You left ${by}'s list. Your Just me items are here, as your own list.`); return; }
+    const box = document.createElement("div");
+    box.className = "viewer invite-box";
+    box.innerHTML = `<div class="card pad">
+      <h2>${r.why === "closed" ? `${esc(by)} stopped sharing their list` : `You were removed from ${esc(by)}'s list`}</h2>
+      <p>The shared list is cleared from this ${Native.isApp ? "phone" : "computer"}. Your Just me items are kept, as your own list.</p>
+      <button class="btn primary block" data-act="close">OK</button>
+    </div>`;
+    document.body.append(box);
+    box.querySelector('[data-act="close"]').addEventListener("click", () => box.remove());
   }
 
   async function loadHousehold() {
@@ -264,7 +323,7 @@
       }
       return changed;
     } catch (e) {
-      if (e.code === "removed") { stopSyncer(); toast("You're no longer in that shared list. Your list is still here.", true); startCloud({ quietInvites: true }); }
+      if (e.code === "removed") { stopSyncer(); startCloud({ quietInvites: true, removed: true }); }
       if (e.code === "auth") { stopSyncer(); CLOUD.auth.forget(); redrawCloud(); }
       return false; // shown on the Settings page; the list here is untouched
     }
@@ -486,11 +545,12 @@
       ${owner && CLOUD.members.length >= MAX_PEOPLE ? `<div class="pad small muted">A shared list can have up to ${MAX_PEOPLE} people, and this one is full. Remove someone to invite someone new.</div>` : ""}
       ${owner && CLOUD.members.length < MAX_PEOPLE ? `<div class="pad"><label class="small muted" for="inviteEmail">Invite someone by email</label>
         <div class="row-btns"><input id="inviteEmail" type="email" autocomplete="off" placeholder="their@email.com"><button class="btn primary" id="inviteSend">Invite</button></div></div>` : ""}
-      ${shared() ? `<div class="set-row"><div class="t">Leave this list<div class="sub">You keep a copy of everything on this ${where}, as your own list.</div></div><button class="btn" id="cloudLeave">Leave</button></div>` : ""}
+      ${shared() && !owner ? `<div class="set-row"><div class="t">Leave this list<div class="sub">The shared list is cleared from this ${where}. Your Just me items come with you, as your own list.</div></div><button class="btn" id="cloudLeave">Leave</button></div>` : ""}
+      ${shared() && owner ? `<div class="set-row"><div class="t">Stop sharing<div class="sub">Everyone else is taken off, and the list is cleared from their devices. They keep their own Just me items. The list stays with you.</div></div><button class="btn" id="cloudLeave">Stop</button></div>` : ""}
       <div class="set-row"><div class="t">Sign out<div class="sub">Everything stays on this ${where}. It just stops syncing.</div></div><button class="btn" id="cloudOut">Sign out</button></div>
       <div class="set-row"><div class="t">Delete my account<div class="sub">Removes your sign-in and what's only yours from ChipAway's server. Your list stays on this ${where}.</div></div><button class="btn danger" id="accDelete">Delete…</button></div>
       ${DELACC.open ? `<div class="pad"><div class="confirm acc-confirm"><p>Delete your ChipAway account? This removes your sign-in, your name and email, your Just me items and any list only you are on from ChipAway's server.
-        ${shared() ? "What you added to the shared list stays there for the others, without your name." : "Your list on the server goes too."}
+        ${shared() && owner ? "The shared list goes too, for everyone in it, and is cleared from their devices. They keep their own Just me items." : shared() ? "What you added to the shared list stays there for the others, without your name." : "Your list on the server goes too."}
         Everything stays on this ${where}, and you can keep using ChipAway without signing in. This can't be undone.</p>
         <div class="row-btns"><button class="btn small danger-solid" id="accDeleteYes">Delete my account</button><button class="btn small" id="accDeleteNo">Keep it</button></div></div></div>` : ""}`;
   }
@@ -562,12 +622,14 @@
     }));
     on("cloudLeave", (e) => {
       const b = e.currentTarget;
-      if (b.dataset.armed !== "1") { b.dataset.armed = "1"; b.textContent = "Tap again to leave"; return; }
+      const owner = CLOUD.members.some((m) => m.user_id === me() && m.role === "owner");
+      if (b.dataset.armed !== "1") { b.dataset.armed = "1"; b.textContent = owner ? "Tap again to stop" : "Tap again to leave"; return; }
       busy(b, async () => {
         stopSyncer();
         await CLOUD.auth.rpc("leave_household");
-        await startCloud({ quietInvites: true }); // a list of your own again, with everything that's here
-        toast("You left. Everything is still here, as your own list.");
+        // leaving: this device clears the shared list and says so (afterRemoval). The owner keeps the list.
+        await startCloud({ quietInvites: true });
+        if (owner) toast("Stopped sharing. The list is just yours now.");
       });
     });
     document.querySelectorAll("[data-rename]").forEach((b) => b.addEventListener("click", () => {
@@ -832,7 +894,7 @@
   // "me:<user id>" = that person's Just me, else a list's id. A list this device doesn't know counts as Everyone.
   // Here a list is named by a key: "" (Everyone), "me" (Just me) or the list's id.
   // Signed out, or before the server knows about lists, there are no lists: everything shows.
-  const LIST = { cur: recall("list", "") };
+  const LIST = { cur: recall("curList", "") };
   const listById = (id) => CLOUD.lists.find((l) => l.id === id) || null;
   function listKey(it) {
     const l = (it && it.list) || "";
@@ -887,7 +949,7 @@
     });
   }
   function switchList(key) {
-    LIST.cur = key; store("list", key);
+    LIST.cur = key; store("curList", key);
     planSeed = 0; planAvoid = [];
     drawListSwitcher();
     const name = route().name;
@@ -938,7 +1000,7 @@
       busy(e.submitter, async () => {
         if (l) await CLOUD.auth.rpc("update_list", { list_id: l.id, list_name: name, people: picked });
         else LIST.cur = await CLOUD.auth.rpc("create_list", { list_name: name, people: picked });
-        store("list", LIST.cur);
+        store("curList", LIST.cur);
         await loadLists();
         close();
         render();
@@ -952,7 +1014,7 @@
       busy(del, async () => {
         await CLOUD.auth.rpc("delete_list", { list_id: l.id });
         // its items move to Everyone on the server; here they count as Everyone already (the list is unknown now)
-        LIST.cur = ""; store("list", "");
+        LIST.cur = ""; store("curList", "");
         await loadLists();
         close();
         render();
@@ -1366,7 +1428,9 @@
   // =====================================================================
   // PROJECTS LIST
   // =====================================================================
-  const L = recall("list", { filter: "open", sort: "priority", flat: false, q: "" });
+  // (the list switcher used to save under this same name: a saved value that isn't this view's is ignored)
+  const L = { filter: "open", sort: "priority", flat: false, q: "" };
+  { const saved = recall("list", null); if (saved && typeof saved === "object") Object.assign(L, saved, { q: typeof saved.q === "string" ? saved.q : "" }); }
 
   const SORTS = {
     priority: ["Priority", (a, b) => (PRI_RANK[b.eff_priority] || 1.5) - (PRI_RANK[a.eff_priority] || 1.5) || (b.derived_status === "doing") - (a.derived_status === "doing")],

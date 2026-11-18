@@ -623,6 +623,33 @@
       return this.fullView();
     }
 
+    /**
+     * The owner of a shared list took this person off it. Only what was theirs stays here: their Just me items
+     * and `ids` (what moved with them on the server, see remove_member in supabase/schema.sql), with those items'
+     * photos, Who's on it and the links between them. Everything else of the shared list goes, photo files too,
+     * and no safety copy of it is kept. What stays moves to Everyone, since the list is just theirs now.
+     * Returns how many items went.
+     */
+    async keepOnlyMine(uid, ids = []) {
+      const keep = new Set(ids);
+      for (const it of Object.values(this.doc.items)) if (uid && it.list === `me:${uid}`) keep.add(it.id);
+      const doc = this.doc;
+      const gonePhotos = [];
+      let gone = 0;
+      for (const id of Object.keys(doc.items)) {
+        if (keep.has(id)) { if (doc.items[id].list) this.set(doc.items[id], "list", ""); continue; }
+        delete doc.items[id];
+        gone++;
+      }
+      for (const [id, p] of Object.entries(doc.photos)) if (!keep.has(p.item_id)) { delete doc.photos[id]; gonePhotos.push(id); }
+      for (const [id, a] of Object.entries(doc.assigns || {})) if (!keep.has(a.item_id)) delete doc.assigns[id];
+      for (const [id, d] of Object.entries(doc.deps)) if (!keep.has(d.item_id) || !keep.has(d.depends_on_id)) delete doc.deps[id];
+      delete doc.cloud; // this device starts over with the list of their own
+      await this.save({ quiet: true });
+      for (const id of gonePhotos) { try { await this.adapter.deletePhoto(id); } catch (e) { /* already gone */ } }
+      return gone;
+    }
+
     // ---------- router: same paths as the homelab server ----------
     async request(method, path, body) {
       const m = method.toUpperCase();
