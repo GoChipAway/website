@@ -330,7 +330,8 @@
   }
   window.addEventListener("chipaway:resume", () => { if (CLOUD.syncer) { runSync(); loadHousehold().catch(() => {}); } });
 
-  /** Someone invited this person: join (bringing their list, or starting fresh), or not now. */
+  /** Someone invited this person: join, or not now. What's on this device already goes in their Just me, which
+   *  only they see; they can move things to the shared list themselves later. */
   function offerInvite(inv) {
     const n = S.items.length;
     const host = inv.invited_by_name || "Someone";
@@ -339,11 +340,8 @@
     box.innerHTML = `<div class="card pad">
       <h2>Join ${esc(host)}'s list?</h2>
       <p>${esc(host)} invited you to share “${esc(inv.household_name)}”. Everyone in it sees and edits the same items, links, moods and photos.</p>
-      ${n ? `<button class="btn primary block" data-join="bring">Join and bring my ${n} item${n === 1 ? "" : "s"}</button>
-      <p class="small muted">Your items are added to the shared list.</p>
-      <button class="btn block" data-join="fresh">Join and start fresh</button>
-      <p class="small muted">Your list here is saved as a backup on this ${Native.isApp ? "phone" : "computer"} first, then only the shared list is shown.</p>`
-      : `<button class="btn primary block" data-join="bring">Join</button>`}
+      ${n ? `<p class="small muted">Your ${n} item${n === 1 ? "" : "s"} here go${n === 1 ? "es" : ""} in Just me, which only you see. You can move anything to the shared list later.</p>` : ""}
+      <button class="btn primary block" data-join="join">Join</button>
       <button class="btn block" data-join="later">Not now</button>
       <button type="button" data-act="close" hidden></button>
     </div>`;
@@ -351,19 +349,19 @@
     const close = () => box.remove();
     box.querySelector('[data-act="close"]').addEventListener("click", () => { close(); startSyncerAfterNo(); });
     box.querySelectorAll("[data-join]").forEach((b) => b.addEventListener("click", async () => {
-      const how = b.dataset.join;
-      if (how === "later") { close(); startSyncerAfterNo(); return; }
+      if (b.dataset.join === "later") { close(); startSyncerAfterNo(); return; }
       box.querySelectorAll("button").forEach((x) => (x.disabled = true));
       try {
-        if (how === "fresh") absorb(await dataStore.startFresh());
-        CLOUD.household = await CLOUD.auth.rpc("accept_invite", { invite_id: inv.invite_id, my_name: CLOUD.auth.displayName, bring_items: how === "bring" });
+        // the server brings nothing along; this device sends its items up itself, already in Just me
+        CLOUD.household = await CLOUD.auth.rpc("accept_invite", { invite_id: inv.invite_id, my_name: CLOUD.auth.displayName, bring_items: false });
+        await dataStore.makeAllMine(me());
         await loadHousehold();
         close();
         startSyncer();
         await runSync();
         absorb(dataStore.fullView());
         render();
-        toast(`You're in ${host}'s list.`);
+        toast(n ? `You're in ${host}'s list. Your items are in Just me.` : `You're in ${host}'s list.`);
       } catch (e) {
         box.querySelectorAll("button").forEach((x) => (x.disabled = false));
         toast(e.message, true);

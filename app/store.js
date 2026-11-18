@@ -650,6 +650,13 @@
       return gone;
     }
 
+    /** Joining someone's shared list: everything here goes in this person's Just me (only they see it). */
+    async makeAllMine(uid) {
+      if (!uid) return;
+      for (const it of Object.values(this.doc.items)) this.set(it, "list", `me:${uid}`);
+      await this.save({ quiet: true });
+    }
+
     // ---------- router: same paths as the homelab server ----------
     async request(method, path, body) {
       const m = method.toUpperCase();
