@@ -3,19 +3,21 @@
   --surface: #ffffff;
   --surface-2: #efebe4;
   --line: #e2dcd2;
-  --text: #1f2a26;
-  --muted: #6b726e;
+  --text: #131b18;
+  --muted: #4d5551;
   --accent: #2f5d50;
   --accent-ink: #ffffff;
   --accent-soft: #e1ece7;
-  --high: #b5452f;
+  --high: #a13a25;
   --high-soft: #f7e3dd;
-  --med: #a8701a;
-  --med-soft: #f6ead3;
-  --low: #5b6b78;
+  --med: #7e5512;
+  --med-soft: #e9e0d0;
+  --low: #47545f;
   --low-soft: #e6eaee;
-  --doing: #a8701a;
-  --doing-soft: #f6ead3;
+  --doing: #6f4a0e;
+  --doing-soft: #e6ddcd;
+  --half: #8a5d12;
+  --half-ring: #8a5d12;
   --block: #9a4a3c;
   --block-soft: #f3e1dc;
   --done: #3f7a4e;
@@ -45,6 +47,8 @@
     --low-soft: #262d33;
     --doing: #e2b161;
     --doing-soft: #3a2f1c;
+    --half: color-mix(in srgb, #e2b161 60%, transparent);
+    --half-ring: color-mix(in srgb, #e2b161 75%, transparent);
     --block: #e79a8a;
     --block-soft: #3a2420;
     --done: #8fcf9e;
@@ -59,7 +63,7 @@
   --bg: #141816; --surface: #1c211f; --surface-2: #252b28; --line: #313835; --text: #e8ebe9;
   --muted: #9aa39f; --accent: #7fb8a4; --accent-ink: #0f1f1a; --accent-soft: #23352f;
   --high: #f0907b; --high-soft: #3d2620; --med: #e2b161; --med-soft: #3a2f1c; --low: #a9b6c1;
-  --low-soft: #262d33; --doing: #e2b161; --doing-soft: #3a2f1c; --block: #e79a8a; --block-soft: #3a2420;
+  --low-soft: #262d33; --doing: #e2b161; --doing-soft: #3a2f1c; --half: color-mix(in srgb, #e2b161 60%, transparent); --half-ring: color-mix(in srgb, #e2b161 75%, transparent); --block: #e79a8a; --block-soft: #3a2420;
   --done: #8fcf9e; --done-soft: #1f3324; --danger-soft: #45231d; --danger-ink: #f3a595;
   --shadow: 0 1px 2px rgba(0, 0, 0, .3); color-scheme: dark;
 }
@@ -235,8 +239,8 @@ h3 { font-size: .8rem; text-transform: uppercase; letter-spacing: .06em; color: 
 .pick + .pick:not(.card) { border-top: 1px solid var(--line); }
 .pick-head { display: flex; gap: 12px; align-items: center; padding: 11px 14px; }
 .pick-head .check.round { border-radius: 50%; width: 26px; height: 26px; }
-.pick-head .check.round.half { border-color: color-mix(in srgb, var(--doing) 75%, transparent);
-  background: linear-gradient(90deg, color-mix(in srgb, var(--doing) 60%, transparent) 50%, transparent 50%) content-box; padding: 3px; }
+.pick-head .check.round.half { border-color: var(--half-ring);
+  background: linear-gradient(90deg, var(--half) 50%, transparent 50%) content-box; padding: 3px; }
 .pick-head .t { flex: 1; min-width: 0; }
 .pick-head .t a { font-weight: 650; text-decoration: none; overflow-wrap: anywhere; }
 .pick-head .t .sub { font-size: .84rem; color: var(--muted); }

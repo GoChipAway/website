@@ -155,6 +155,7 @@
   // and computer of everyone in it. Sync runs when the app opens, when it comes back to the screen, a few seconds
   // after each change, and every so often while the app is open and the list is shared (cloud.js).
   const POLL_MS = 20000;
+  const MAX_PEOPLE = 6; // people in one shared list; keep in step with member_limit() in supabase/schema.sql
   const CLOUD = {
     auth: null, household: null, members: [], invites: [], sent: [],
     syncer: null, status: { state: "idle" }, poll: null, starting: null,
@@ -438,7 +439,8 @@
         <div class="row-btns">${navigator.share ? `<button class="btn primary" id="inviteShare">Share…</button>` : ""}<button class="btn${navigator.share ? "" : " primary"}" id="inviteCopy">Copy</button>
           <a class="btn" href="mailto:${encodeURIComponent(CLOUD.lastInvite.email)}?subject=${encodeURIComponent("Join my ChipAway list")}&body=${encodeURIComponent(CLOUD.lastInvite.text)}">Email it</a>
           <button class="btn" id="inviteDone">Done</button></div></div>` : ""}
-      ${owner ? `<div class="pad"><label class="small muted" for="inviteEmail">Invite someone by email</label>
+      ${owner && CLOUD.members.length >= MAX_PEOPLE ? `<div class="pad small muted">A shared list can have up to ${MAX_PEOPLE} people, and this one is full. Remove someone to invite someone new.</div>` : ""}
+      ${owner && CLOUD.members.length < MAX_PEOPLE ? `<div class="pad"><label class="small muted" for="inviteEmail">Invite someone by email</label>
         <div class="row-btns"><input id="inviteEmail" type="email" autocomplete="off" placeholder="their@email.com"><button class="btn primary" id="inviteSend">Invite</button></div></div>` : ""}
       ${shared() ? `<div class="set-row"><div class="t">Leave this list<div class="sub">You keep a copy of everything on this ${where}, as your own list.</div></div><button class="btn" id="cloudLeave">Leave</button></div>` : ""}
       <div class="set-row"><div class="t">Sign out<div class="sub">Everything stays on this ${where}. It just stops syncing.</div></div><button class="btn" id="cloudOut">Sign out</button></div>`;
