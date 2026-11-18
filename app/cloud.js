@@ -66,6 +66,27 @@
     return doc;
   }
 
+  /**
+   * What leaves this device when the server says rows are hidden from this person: those rows, plus (for an
+   * item) its photos, Who's on it and needs-first links. [{ kind, coll, id }]
+   */
+  function hiddenRecords(doc, hidden) {
+    const out = new Map();
+    const add = (kind, id) => { if (doc[KINDS[kind]] && doc[KINDS[kind]][id]) out.set(`${kind}:${id}`, { kind, coll: KINDS[kind], id }); };
+    const items = new Set();
+    for (const r of hidden) {
+      if (!KINDS[r.kind]) continue;
+      add(r.kind, r.id);
+      if (r.kind === "item") items.add(r.id);
+    }
+    if (items.size) {
+      for (const p of Object.values(doc.photos || {})) if (items.has(p.item_id)) add("photo", p.id);
+      for (const a of Object.values(doc.assigns || {})) if (items.has(a.item_id)) add("assign", a.id);
+      for (const d of Object.values(doc.deps || {})) if (items.has(d.item_id) || items.has(d.depends_on_id)) add("dep", d.id);
+    }
+    return [...out.values()];
+  }
+
   // ---------------------------------------------------------------------
   /**
    * The household's rows and photos over Supabase's REST API.
@@ -99,8 +120,17 @@
       if (/not_member/.test(detail)) throw new SyncError("removed", "You're no longer in this shared list.");
       throw new SyncError("server", `${what} failed (${res.status}${detail ? `: ${detail}` : ""})`);
     }
-    /** Rows changed since `since`, oldest first, up to `limit`. */
+    /** Rows changed since `since`, oldest first, up to `limit`. A row this person can't see (it's in a list
+     *  they aren't on) comes with data null: drop it here. */
     async pull(since, limit = PAGE) {
+      if (!this.plainPull) {
+        const res = await this.call("/rest/v1/rpc/pull_records", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ h: this.household, since, lim: limit }),
+        });
+        if (res.status !== 404) return (await this.check(res, "Downloading changes")).json();
+        this.plainPull = true; // the server doesn't have lists yet: read the rows directly, as before
+      }
       const q = new URLSearchParams({ select: "kind,id,data,rev", household_id: `eq.${this.household}`, rev: `gt.${since}`, order: "rev.asc", limit: String(limit) });
       const res = await this.check(await this.call(`/rest/v1/records?${q}`), "Downloading changes");
       return res.json();
@@ -205,13 +235,18 @@
         }
         if (page.length < PAGE) break;
       }
-      for (const r of pulled) meta.sent[`${r.kind}:${r.id}`] = fingerprint(r.data); // the server has exactly this now
-      const remoteDoc = fromRows(pulled); // kinds this version doesn't know are left on the server untouched
+      const seen = pulled.filter((r) => r.data);
+      for (const r of seen) meta.sent[`${r.kind}:${r.id}`] = fingerprint(r.data); // the server has exactly this now
+      const remoteDoc = fromRows(seen); // kinds this version doesn't know are left on the server untouched
       const startedFrom = JSON.parse(JSON.stringify(store.doc));
       if (firstTime && Object.keys(startedFrom.items).length) {
         // the first upload from this device: keep a copy of the list exactly as it was, just in case
         await store.adapter.saveSafetyCopy(startedFrom, "before-cloud");
       }
+      // moved to a list this person isn't on (or they came off its list): it leaves this device, with its
+      // photos, Who's on it and links, and isn't sent back
+      const drop = hiddenRecords(startedFrom, pulled.filter((r) => !r.data));
+      for (const d of drop) { delete startedFrom[d.coll][d.id]; delete meta.sent[`${d.kind}:${d.id}`]; }
       const { doc: merged } = M.mergeDocs(startedFrom, remoteDoc);
 
       // 2. photos up: live photos this device has that the server hasn't had from anyone yet
@@ -246,7 +281,7 @@
       }
 
       // 5. save here, merged once more with the list as it is right now
-      const changedHere = await store.applySynced(merged, fetched);
+      const changedHere = await store.applySynced(merged, fetched, drop);
 
       // 6. tidy up the server: files of photos deleted (by anyone), once
       const gone = Object.values(merged.photos).filter((p) => p.deleted_at && !meta.gone[p.id]).map((p) => p.id);
@@ -265,7 +300,7 @@
     }
   }
 
-  const api = { CloudSyncer, SupabaseRemote, SyncError, fingerprint, toRows, fromRows, KINDS };
+  const api = { CloudSyncer, SupabaseRemote, SyncError, fingerprint, toRows, fromRows, hiddenRecords, KINDS };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.FeasibleCloud = api;
 })(typeof self !== "undefined" ? self : this);

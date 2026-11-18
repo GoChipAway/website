@@ -159,6 +159,9 @@
   const CLOUD = {
     auth: null, household: null, members: [], invites: [], sent: [],
     syncer: null, status: { state: "idle" }, poll: null, starting: null,
+    // lists of the household's own that this person is on: [{ id, name, created_by, people: [user ids] }]
+    // listsOk: the server knows about lists (until its SQL is run, Just me and new lists aren't offered)
+    lists: recall("cloud.lists", []), listsOk: recall("cloud.listsOk", false),
   };
   const me = () => (CLOUD.auth && CLOUD.auth.userId) || null;
   const signedIn = () => !!(CLOUD.auth && CLOUD.auth.signedIn);
@@ -210,6 +213,19 @@
     CLOUD.sent = (sent || []).filter((i) => new Date(i.expires_at) > new Date());
     CLOUD.houseName = (house && house[0] && house[0].name) || "Our list";
     store("cloud.members", CLOUD.members.map((m) => ({ user_id: m.user_id, name: m.name, email: m.email })));
+    await loadLists();
+  }
+  async function loadLists() {
+    try {
+      const rows = await CLOUD.auth.get(`lists?select=id,name,created_by,created_at,list_members(user_id)&household_id=eq.${CLOUD.household}&order=created_at`);
+      CLOUD.lists = (rows || []).map((l) => ({ id: l.id, name: l.name, created_by: l.created_by, people: (l.list_members || []).map((m) => m.user_id) }));
+      CLOUD.listsOk = true;
+    } catch (e) {
+      if (e.status !== 404) return; // offline for a moment: keep what we knew
+      CLOUD.lists = []; CLOUD.listsOk = false; // the server doesn't have lists yet
+    }
+    store("cloud.lists", CLOUD.lists); store("cloud.listsOk", CLOUD.listsOk);
+    drawListSwitcher();
   }
 
   function startSyncer() {
@@ -241,6 +257,8 @@
       const changed = await CLOUD.syncer.now();
       if (changed) {
         absorb(dataStore.fullView());
+        // someone put us on a list we haven't heard of yet
+        if (S.items.some((i) => i.list && !i.list.startsWith("me:") && !CLOUD.lists.some((l) => l.id === i.list))) await loadLists();
         const name = route().name;
         if (name !== "new" && name !== "edit" && name !== "settings") render(); // never redraw a form someone is typing in
       }
@@ -326,7 +344,9 @@
     if (dataStore) dataStore.me = null;
     await CLOUD.auth.signOut();
     CLOUD.household = null; CLOUD.members = []; CLOUD.invites = []; CLOUD.sent = []; CLOUD.status = { state: "idle" };
-    store("cloud.members", []);
+    CLOUD.lists = []; CLOUD.listsOk = false;
+    store("cloud.members", []); store("cloud.lists", []); store("cloud.listsOk", false);
+    drawListSwitcher();
   }
 
   // Back from Google's sign-in in a browser: the session is in the address.
@@ -770,6 +790,141 @@
   const people = () => (CLOUD.members.length ? CLOUD.members : recall("cloud.members", []));
   const personById = (uid) => people().find((m) => m.user_id === uid) || { user_id: uid, name: "", email: "Someone" };
   const showWho = () => signedIn() && people().length > 1;
+  // ---------- lists (shared lists): Everyone, Just me, and lists of the household's own ----------
+  // An item's list field (keep in step with list_visible() in supabase/schema.sql): "" = Everyone,
+  // "me:<user id>" = that person's Just me, else a list's id. A list this device doesn't know counts as Everyone.
+  // Here a list is named by a key: "" (Everyone), "me" (Just me) or the list's id.
+  // Signed out, or before the server knows about lists, there are no lists: everything shows.
+  const LIST = { cur: recall("list", "") };
+  const listById = (id) => CLOUD.lists.find((l) => l.id === id) || null;
+  function listKey(it) {
+    const l = (it && it.list) || "";
+    if (!l || !me()) return "";
+    if (l === `me:${me()}`) return "me";
+    return listById(l) ? l : "";
+  }
+  const listField = (key) => (key === "me" ? `me:${me()}` : key || "");
+  const listName = (key) => (key === "me" ? "Just me" : key ? (listById(key) || { name: "Everyone" }).name : "Everyone");
+  function listsOn() {
+    if (!signedIn() || !CLOUD.listsOk) return false;
+    return people().length > 1 || CLOUD.lists.length > 0 || S.items.some((i) => listKey(i) !== "");
+  }
+  /** The list being looked at: "", "me" or a list id; null when there are no lists. */
+  function curList() {
+    if (!listsOn()) return null;
+    if (LIST.cur === "me" || LIST.cur === "" || listById(LIST.cur)) return LIST.cur;
+    return "";
+  }
+  const inList = (it) => { const c = curList(); return c === null || listKey(it) === c; };
+  const listItems = () => S.items.filter(inList);
+  /** Who's in a list: everyone for Everyone, just you for Just me. */
+  function listPeople(key) {
+    if (key === "me") return people().filter((m) => m.user_id === me());
+    const l = key ? listById(key) : null;
+    return l ? people().filter((m) => l.people.includes(m.user_id)) : people();
+  }
+  const canManage = (l) => !!l && (l.created_by === me() || !people().some((m) => m.user_id === l.created_by));
+  const listOptions = () => [["", "Everyone"], ["me", "Just me"], ...CLOUD.lists.map((l) => [l.id, l.name])];
+
+  // the switcher sits where the ChipAway name is in the top bar
+  function drawListSwitcher() {
+    const box = document.getElementById("listSw");
+    if (!box) return;
+    const cur = curList();
+    document.body.classList.toggle("has-lists", cur !== null);
+    if (cur === null) { box.innerHTML = ""; return; }
+    const n = (key) => {
+      const k = listPeople(key).length;
+      return key === "me" ? "only you" : key === "" ? `all ${k}` : k === 1 ? "only you" : `${k} people`;
+    };
+    const l = listById(cur);
+    const extra = [["__new", "New list…"]];
+    if (l) extra.push(["__edit", canManage(l) ? `Edit “${l.name}”…` : `Who's on “${l.name}”`]);
+    box.innerHTML = `<div class="dd list-dd" id="listDD" data-value="${esc(cur)}">
+      <button type="button" class="dd-btn" aria-haspopup="listbox" aria-expanded="false" aria-label="List"><span class="dd-val">${esc(listName(cur))}</span><span class="caret" aria-hidden="true">▾</span></button>
+      <div class="dd-list hidden" role="listbox" aria-label="List">${listOptions().map(([v, name]) => `<button type="button" role="option" data-v="${esc(v)}" aria-selected="${v === cur}"><span class="ln">${esc(name)}</span><span class="lc">${n(v)}</span></button>`).join("")}${extra.map(([v, name]) => `<button type="button" role="option" class="list-act" data-v="${v}" aria-selected="false">${esc(name)}</button>`).join("")}</div></div>`;
+    document.getElementById("listDD").addEventListener("change", (e) => {
+      const v = e.currentTarget.dataset.value;
+      if (v === "__new" || v === "__edit") { drawListSwitcher(); openListSheet(v === "__edit" ? cur : null); return; }
+      switchList(v);
+    });
+  }
+  function switchList(key) {
+    LIST.cur = key; store("list", key);
+    planSeed = 0; planAvoid = [];
+    drawListSwitcher();
+    const name = route().name;
+    if (name === "item" || name === "edit") location.hash = "#/plan"; else render();
+  }
+
+  /** Make a list (key null), or edit / look at one. */
+  function openListSheet(key) {
+    const l = key ? listById(key) : null;
+    const mine = !l || canManage(l);
+    const everyone = [...people()].sort((a, b) => (a.user_id === me() ? -1 : b.user_id === me() ? 1 : 0));
+    const on = new Set(l ? l.people : [me()]);
+    const count = l ? S.items.filter((i) => i.list === l.id).length : 0;
+    const maker = l ? personById(l.created_by) : null;
+    const box = document.createElement("div");
+    box.className = "viewer invite-box list-sheet";
+    box.innerHTML = `<form class="card pad" id="listForm">
+      <h2>${!l ? "New list" : mine ? "Edit list" : esc(l.name)}</h2>
+      ${mine ? `<label class="small muted" for="listName">Name</label>
+        <input id="listName" type="text" maxlength="40" autocomplete="off" autocapitalize="words" value="${esc(l ? l.name : "")}" placeholder="e.g. Garage, Mom and me">` : ""}
+      <div class="lbl-row small muted">${mine ? "Who can see and edit it" : "On this list"}</div>
+      <div class="list-people">${everyone.map((m) => {
+        const you = m.user_id === me();
+        return `<label class="person"><input type="checkbox" value="${esc(m.user_id)}"${on.has(m.user_id) ? " checked" : ""}${you || !mine ? " disabled" : ""}>
+          <span class="who sm" aria-hidden="true">${esc(initials(m))}</span><span>${you ? "You" : esc(tagName(m))}</span></label>`;
+      }).join("")}</div>
+      <p class="small muted">${mine ? "Everyone on it can add, change and finish its items. Only you can rename it, change who's on it or delete it." : `Everyone on it can add, change and finish its items. ${esc(maker && maker.user_id !== me() ? tagName(maker) : "Whoever made it")} can rename it or change who's on it.`}</p>
+      <div class="row-btns">${mine ? `<button class="btn primary" type="submit">${l ? "Save" : "Make list"}</button><button class="btn" type="button" data-act="close">Cancel</button>` : `<button class="btn primary" type="button" data-act="close">Close</button>`}</div>
+      ${l && mine ? `<div class="list-del"><button class="btn ghost danger-text" type="button" id="listDel">Delete list</button><span class="small muted">${count ? `Its ${count} item${count === 1 ? "" : "s"} move${count === 1 ? "s" : ""} to Everyone.` : "It's empty."}</span></div>` : ""}
+    </form>`;
+    document.body.append(box);
+    const close = () => box.remove();
+    box.querySelectorAll('[data-act="close"]').forEach((b) => b.addEventListener("click", close));
+    box.addEventListener("click", (e) => { if (e.target === box) close(); });
+    box.addEventListener("keydown", (e) => { if (e.key === "Escape") close(); });
+    const nameBox = box.querySelector("#listName");
+    if (nameBox && !l) nameBox.focus();
+    const busy = async (btn, fn) => {
+      box.querySelectorAll("button").forEach((x) => (x.disabled = true));
+      try { await fn(); } catch (e) { toast(e.message, true); box.querySelectorAll("button").forEach((x) => (x.disabled = false)); }
+    };
+    box.querySelector("#listForm").addEventListener("submit", (e) => {
+      e.preventDefault();
+      if (!mine) return;
+      const name = nameBox.value.trim();
+      if (!name) { toast("Give the list a name.", true); nameBox.focus(); return; }
+      const picked = [...box.querySelectorAll(".list-people input:checked")].map((x) => x.value);
+      busy(e.submitter, async () => {
+        if (l) await CLOUD.auth.rpc("update_list", { list_id: l.id, list_name: name, people: picked });
+        else LIST.cur = await CLOUD.auth.rpc("create_list", { list_name: name, people: picked });
+        store("list", LIST.cur);
+        await loadLists();
+        close();
+        render();
+        if (CLOUD.syncer) runSync();
+        toast(l ? "List saved." : `Made “${name}”. Anything you add now goes in it.`);
+      });
+    });
+    const del = box.querySelector("#listDel");
+    if (del) del.addEventListener("click", () => {
+      if (del.dataset.armed !== "1") { del.dataset.armed = "1"; del.textContent = "Tap again to delete"; return; }
+      busy(del, async () => {
+        await CLOUD.auth.rpc("delete_list", { list_id: l.id });
+        // its items move to Everyone on the server; here they count as Everyone already (the list is unknown now)
+        LIST.cur = ""; store("list", "");
+        await loadLists();
+        close();
+        render();
+        if (CLOUD.syncer) runSync();
+        toast(`Deleted “${l.name}”.${count ? ` Its items are in Everyone.` : ""}`);
+      });
+    });
+  }
+
   function badgesHTML(it) {
     if (!showWho() || !(it.assignees || []).length || isDone(it)) return "";
     return `<span class="badges">${it.assignees.map((u) => `<span class="who-tag" title="${esc(tagName(personById(u)))}">${esc(tagName(personById(u)))}</span>`).join("")}</span>`;
@@ -777,7 +932,10 @@
   function whoHTML(it) {
     if (!showWho()) return "";
     const on = new Set(it.assignees || []);
-    const list = [...people()].sort((a, b) => (a.user_id === me() ? -1 : b.user_id === me() ? 1 : 0));
+    // just the people on its list, plus anyone already on it
+    const here = listsOn() ? people().filter((m) => on.has(m.user_id) || listPeople(listKey(it)).includes(m)) : people();
+    if (here.length < 2) return ""; // Just me: it's yours
+    const list = [...here].sort((a, b) => (a.user_id === me() ? -1 : b.user_id === me() ? 1 : 0));
     return `<div class="whos"><span class="lbl">Who's on it</span>${list.map((m) => `<button type="button" class="who-chip${on.has(m.user_id) ? " on" : ""}" data-assign="${esc(m.user_id)}" aria-pressed="${on.has(m.user_id)}"><span class="who sm" aria-hidden="true">${esc(initials(m))}</span>${esc(memberName(m))}</button>`).join("")}</div>`;
   }
 
@@ -798,7 +956,7 @@
   }
 
   // what's started and not finished, oldest start first
-  const doingNow = () => S.items.filter((i) => i.status === "doing" && !isDone(i))
+  const doingNow = (everywhere = false) => S.items.filter((i) => i.status === "doing" && !isDone(i) && (everywhere || inList(i)))
     .sort((a, b) => String(a.started_at || "").localeCompare(String(b.started_at || "")));
 
   // Every To do / Doing / Done change goes through here: one tap, and Undo puts it back exactly.
@@ -849,6 +1007,7 @@
     if (!S.loaded) {
       try { await api("/api/items"); } catch (e) { $app.innerHTML = `<div class="card empty"><h2>Can't reach the app</h2><p>${esc(e.message)}</p></div>`; return; }
     }
+    drawListSwitcher();
     if (r.name === "plan") return renderPlan();
     if (r.name === "projects") return renderProjects();
     if (r.name === "item") return renderItem(r.id);
@@ -879,7 +1038,26 @@
   let planAvoid = []; // picks already shown since the last change; "Something else" skips them
   let planTimer;
 
+  // a list with nothing in it yet (the whole app isn't empty, just this list)
+  function emptyListHTML() {
+    const c = curList(), l = listById(c);
+    const who = c === "me" ? "Only you see what's in it." : l ? `${listPeople(c).map((m) => (m.user_id === me() ? "You" : esc(tagName(m)))).join(", ")} see and edit what's in it.` : "";
+    return `<div class="card empty pad"><h1>Nothing in ${esc(listName(c))} yet</h1>
+      <p>${who} Add something here, or move an item in from its Edit page.</p>
+      <a class="btn primary" href="#/new">Add to ${esc(listName(c))}</a>
+      ${l ? `<button class="btn ghost" type="button" id="emptyEdit">${canManage(l) ? "Edit list" : "Who's on it"}</button>` : ""}</div>`;
+  }
+  function wireEmptyList() {
+    const b = document.getElementById("emptyEdit");
+    if (b) b.addEventListener("click", () => openListSheet(curList()));
+  }
+
   function renderPlan() {
+    if (!listItems().length && S.items.length) {
+      $app.innerHTML = emptyListHTML();
+      wireEmptyList();
+      return;
+    }
     if (!S.items.length) {
       $app.innerHTML = `<div class="card empty pad">
         <h1>What can you get done?</h1>
@@ -902,7 +1080,7 @@
           <div class="limit"><label for="budget">Budget · $</label><input id="budget" type="tel" inputmode="numeric" pattern="[0-9]*" enterkeyhint="done" autocomplete="off" placeholder="any" value="${P.budget ?? ""}"><button class="clear" data-clear="budget" title="No budget limit">×</button></div>
         </div>
         </div>
-        ${S.areas.length || showWho() ? `<div class="pick-row">${S.areas.length ? ddHTML("area", "Location", [["", "Anywhere"], ...S.areas.map((a) => [a, a])], P.area, { icon: "📍", cls: "loc" }) : ""}${whoFilterHTML()}</div>` : ""}
+        ${S.areas.length || whoFilterHTML() ? `<div class="pick-row">${S.areas.length ? ddHTML("area", "Location", [["", "Anywhere"], ...S.areas.map((a) => [a, a])], P.area, { icon: "📍", cls: "loc" }) : ""}${whoFilterHTML()}</div>` : ""}
         <div class="modes" role="radiogroup" aria-label="Mood">${MODE_ORDER.map((m) => `<button class="mode${P.mode === m ? " on" : ""}" data-mode="${m}" role="radio" aria-checked="${P.mode === m}">${esc(S.modes[m] || m)}</button>`).join("")}</div>
         <div class="mode-hint" id="modeHint">${modeHint(P.mode)}</div>
       </section>
@@ -972,7 +1150,8 @@
   function doingBarHTML() {
     const doing = doingNow().filter(whoMatches);
     // shared list: the limit is per person (what you're on, plus anything nobody's on)
-    const mine = showWho() ? doingNow().filter((i) => !(i.assignees || []).length || i.assignees.includes(me())) : doing;
+    // (the limit counts what you're doing in every list)
+    const mine = showWho() ? doingNow(true).filter((i) => !(i.assignees || []).length || i.assignees.includes(me())) : doing;
     return doing.length ? `<details class="doing-now${mine.length > S.settings.doing_limit ? " past-limit" : ""}" id="doingNow" ${recall("doingOpen", false) ? "open" : ""}>
         <summary><span class="lbl">Doing now · ${doing.length}</span><span class="names">${doing.map((i) => esc(i.title)).join(", ")}</span></summary>
         <div class="card">${doing.map((i) => `<div class="pick" data-open="${i.id}">${compactHeadHTML(i, i.cost, i.hours)}</div>`).join("")}</div></details>` : "";
@@ -985,7 +1164,7 @@
   // ---------- Who filter (shared lists): Everyone unless you pick people; you can pick several ----------
   // P.who holds "me", "none" (nobody's on it) and other people's ids; "me" follows whoever is signed in.
   function planWho() {
-    if (!showWho() || !P.who.length) return null;
+    if (!showWho() || !P.who.length || !whoFilterHTML()) return null;
     return P.who.map((v) => (v === "me" ? me() : v));
   }
   function whoMatches(it) {
@@ -995,7 +1174,8 @@
     return on.length ? on.some((u) => who.includes(u)) : who.includes("none");
   }
   function whoOptions() {
-    const others = people().filter((m) => m.user_id !== me()).map((m) => [m.user_id, tagName(m)]);
+    const c = curList();
+    const others = (c === null ? people() : listPeople(c)).filter((m) => m.user_id !== me()).map((m) => [m.user_id, tagName(m)]);
     return [["me", "Me"], ...others, ["none", "Unassigned"]];
   }
   function whoLabel(sel) {
@@ -1004,7 +1184,7 @@
     return names.join(" + ");
   }
   function whoFilterHTML() {
-    if (!showWho()) return "";
+    if (!showWho() || curList() === "me" || (curList() !== null && listPeople(curList()).length < 2)) return "";
     const sel = P.who;
     const opts = [["", "Everyone"], ...whoOptions()];
     return `<div class="dd loc multi" id="whoF" data-value="${esc(JSON.stringify(sel))}">
@@ -1034,7 +1214,7 @@
     if (!$r) return;
     let res;
     try {
-      res = await api("/api/plan", { method: "POST", body: { hours: P.all ? null : P.hours, budget: P.all ? null : P.budget, mode: P.mode, shuffle: planSeed, area: P.area || null, who: planWho(), avoid: planAvoid } });
+      res = await api("/api/plan", { method: "POST", body: { hours: P.all ? null : P.hours, budget: P.all ? null : P.budget, mode: P.mode, shuffle: planSeed, area: P.area || null, who: planWho(), avoid: planAvoid, only: curList() === null ? null : listItems().map((i) => i.id) } });
     } catch (e) { $r.innerHTML = `<div class="card empty"><p>${esc(e.message)}</p></div>`; return; }
     if (!document.getElementById("results")) return;
     $r.innerHTML = planHTML(res);
@@ -1056,7 +1236,7 @@
   }
 
   function planHTML(res) {
-    const openCount = S.items.filter((i) => !isDone(i)).length;
+    const openCount = listItems().filter((i) => !isDone(i)).length;
     if (!openCount) {
       return `<div class="card empty pad"><h2>Everything's done</h2><p>Nothing left on the list. Enjoy it, or add the next thing.</p><a class="btn primary" href="#/new">Add a project</a></div>`;
     }
@@ -1215,6 +1395,7 @@
       $app.innerHTML = `<div class="card empty pad"><h1>No projects yet</h1><p>Start with whatever's been bugging you the longest.</p><a class="btn primary" href="#/new">Add a project</a></div>`;
       return;
     }
+    if (!listItems().length) { $app.innerHTML = emptyListHTML(); wireEmptyList(); return; }
     $app.innerHTML = `
       <h1>Projects</h1>
       <div class="toolbar">
@@ -1224,7 +1405,7 @@
       <div class="filters" id="filters"></div>
       <div id="listOut" style="margin-top:12px"></div>`;
     const draw = () => {
-      const pool = S.items;
+      const pool = listItems();
       const q = L.q.trim().toLowerCase();
       const match = (i) => {
         if (!q) return true;
@@ -1270,6 +1451,7 @@
     facts += fact("Priority", it.priority ? cap(it.priority) : dash);
     facts += fact("Difficulty", it.difficulty ? cap(it.difficulty) : dash);
     facts += fact("Location", it.area ? esc(it.area) : dash);
+    if (listsOn()) facts += fact("List", esc(listName(listKey(it))));
     const by = showWho() && it.created_by ? ` <span class="inh">by ${it.created_by === me() ? "you" : esc(tagName(personById(it.created_by)))}</span>` : "";
     facts += fact("Added", `${fmtDate(it.created_at)} <span class="inh">${ago(it.created_at)}</span>${by}`);
 
@@ -1470,6 +1652,7 @@
           <div class="field"><label for="f_time_h">Time</label>${hmHTML("f_time", f.hours, { cls: "hm boxed" })}
             <div class="quick-chips" data-fillhm="f_time"><button type="button" data-v="0.25">15m</button><button type="button" data-v="0.5">30m</button><button type="button" data-v="1">1h</button><button type="button" data-v="2">2h</button><button type="button" data-v="4">4h</button><button type="button" data-v="8">8h</button></div></div>
         </div>
+        ${listsOn() ? `<div class="field"><div class="lbl">List</div>${ddHTML("f_list", "List", listOptions(), editing ? listKey(editing) : curList(), { cls: "plain list-pick" })}</div>` : ""}
         <div class="field"><div class="lbl">Priority</div>${seg("priority", [["", "—"], ["low", "Low"], ["medium", "Medium"], ["high", "High"]], f.priority, "p")}</div>
         <div class="field"><div class="lbl">Difficulty</div>${seg("difficulty", [["", "—"], ["easy", "Easy"], ["medium", "Medium"], ["hard", "Hard"]], f.difficulty)}</div>
         <details class="more" id="more"><summary>More options <span class="muted">· ${moreSummary(editing)}</span></summary>
@@ -1597,6 +1780,10 @@
         status: f.status || "todo",
         depends_on: f.depends_on,
       };
+      const $list = document.getElementById("f_list");
+      const listTo = $list ? $list.dataset.value : null;
+      // only when it changes, so an item in a list this device hasn't heard of yet stays where it is
+      if ($list && (!editing || listTo !== listKey(editing))) body.list = listField(listTo);
       if (!body.title) { toast("Give it a name", true); return; }
       try {
         const res = editing
@@ -1615,7 +1802,8 @@
             made++;
           } catch (err) { toast(`Couldn't add “${n.title}”: ${err.message}`, true); }
         }
-        toast((editing ? "Saved" : "Added") + (made ? `, plus ${made} new thing${made === 1 ? "" : "s"} it needs first` : ""));
+        const moved = editing && body.list !== undefined ? ` and moved to ${listName(listTo)}` : !editing && listTo !== null && listTo !== curList() ? ` to ${listName(listTo)}` : "";
+        toast((editing ? "Saved" : "Added") + moved + (made ? `, plus ${made} new thing${made === 1 ? "" : "s"} it needs first` : ""));
         location.hash = `#/item/${res.id}`;
       } catch (err) { toast(err.message, true); }
     });

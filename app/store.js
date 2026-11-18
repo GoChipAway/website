@@ -20,7 +20,7 @@
   const OTHER_DEFAULTS = { doing_limit: 3 };
   const MAX_PHOTOS = 10; // per item: a few "this is the spot" pictures, not a camera roll
   const ITEM_FIELDS = ["parent_id", "title", "notes", "area", "priority", "difficulty", "cost", "hours", "status",
-    "sort", "created_at", "started_at", "done_at", "deleted_at"];
+    "sort", "created_at", "started_at", "done_at", "deleted_at", "list"];
 
   // ---------- time ----------
   const pad = (n) => String(n).padStart(2, "0");
@@ -157,13 +157,21 @@
      * It's merged once more with the list as it is right now, so a change made while sync was running is kept.
      * Returns true if anything here changed.
      */
-    async applySynced(merged, photos = {}) {
+    async applySynced(merged, photos = {}, drop = []) {
       for (const [id, ph] of Object.entries(photos)) {
         if (ph.full) await this.adapter.putPhoto(id, "full", ph.full);
         if (ph.thumb) await this.adapter.putPhoto(id, "thumb", ph.thumb);
       }
       const { doc, changedMine } = M.mergeDocs(this.doc, merged);
-      if (!changedMine && !Object.keys(photos).length) return false;
+      // records now in a list this person isn't on (see cloud.js): gone from here, photo files too
+      let dropped = 0;
+      for (const d of drop) {
+        if (!doc[d.coll] || !doc[d.coll][d.id]) continue;
+        delete doc[d.coll][d.id];
+        dropped++;
+        if (d.coll === "photos") { try { await this.adapter.deletePhoto(d.id); } catch (e) { /* already gone */ } }
+      }
+      if (!changedMine && !dropped && !Object.keys(photos).length) return false;
       if (doc.schema > SCHEMA) throw new ApiError(409, "Your list was synced by a newer version of ChipAway. Update the app to keep syncing.");
       this.doc = doc;
       this.upgrade();
@@ -198,7 +206,8 @@
     newItem(fields) {
       const t = now();
       const rec = {
-        id: uuid(), seq: this.doc.next_seq++, parent_id: null, title: "", notes: "", area: "", priority: null,
+        // list: "" = Everyone, "me:<user id>" = that person's Just me, else a list's id (shared lists)
+        id: uuid(), seq: this.doc.next_seq++, parent_id: null, list: "", title: "", notes: "", area: "", priority: null,
         difficulty: null, cost: null, hours: null, status: "todo", sort: 0, created_at: t, updated_at: t,
         started_at: null, done_at: null, deleted_at: null, _ts: {},
         ...fields,
@@ -279,6 +288,7 @@
       }
       out.status = b.status || "todo";
       if (!["todo", "doing", "done"].includes(out.status)) bad("bad status");
+      if (b.list !== undefined && b.list !== null) out.list = String(b.list).slice(0, 120); // left out = stays where it is
       out.depends_on = Array.isArray(b.depends_on) ? b.depends_on.map(String) : [];
       out.created_on = b.created_on || null;
       if (out.created_on) {
@@ -318,7 +328,7 @@
       const snapshot = JSON.stringify(this.doc);
       const rec = this.newItem({
         title: b.title, notes: b.notes, area: b.area, priority: b.priority, difficulty: b.difficulty,
-        cost: b.cost, hours: b.hours, status: b.status,
+        cost: b.cost, hours: b.hours, status: b.status, list: b.list || "",
         created_at: this.createdAt(b.created_on), started_at: started, done_at: done,
       });
       try { this.saveDeps(this.state(), rec.id, b.depends_on); }
@@ -338,6 +348,7 @@
           title: b.title, notes: b.notes, area: b.area, priority: b.priority, difficulty: b.difficulty,
           cost: b.cost, hours: b.hours, status: b.status, started_at: started, done_at: done,
           created_at: this.createdAt(b.created_on, old.created_at),
+          ...(b.list !== undefined ? { list: b.list } : {}),
         });
         this.saveDeps(this.state(), id, b.depends_on);
         await this.save();
@@ -359,7 +370,7 @@
         if (body.new) {
           const title = String(body.new.title || "").trim();
           if (!title) bad("Give it a name");
-          created = other = this.newItem({ title }).id;
+          created = other = this.newItem({ title, list: this.doc.items[id].list || "" }).id; // in the same list
           st = this.state();
         } else if (body.other_id) {
           other = String(body.other_id);
@@ -492,6 +503,7 @@
         shuffle: Number(body.shuffle) || 0, area: body.area || null, limits: this.settingsValues(),
         who: Array.isArray(body.who) && body.who.length ? body.who.map(String) : null, assignees: this.assigneesByItem(),
         avoid: Array.isArray(body.avoid) ? body.avoid : null,
+        only: Array.isArray(body.only) ? body.only.map(String) : null, // shared lists: just the current list's items
       });
     }
 

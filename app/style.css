@@ -506,3 +506,30 @@ body.welcoming .tabs, body.welcoming [data-tab="settings"], body.welcoming .top 
 .who-chip.on .who { background: rgba(255, 255, 255, .25); }
 .invite-note textarea { width: 100%; border: 1px solid var(--line); background: var(--surface-2); color: inherit; border-radius: 10px; padding: 10px 12px; font: inherit; font-size: .9rem; resize: vertical; }
 .invite-note p { margin: 0 0 8px; }
+
+/* lists (shared lists): the switcher takes the ChipAway name's place in the top bar */
+.has-lists .brand-name { display: none; }
+.has-lists .brand { gap: 0; }
+.list-sw { min-width: 0; flex: 0 1 auto; margin-left: -6px; }
+.list-sw:empty { display: none; }
+.list-dd .dd-btn { padding: 6px 8px; border-radius: 10px; font-weight: 700; font-size: 1.05rem; letter-spacing: -.01em; gap: 6px; max-width: 52vw; }
+.list-dd .dd-btn:hover, .list-dd.open .dd-btn { background: var(--surface-2); }
+.list-dd .caret { color: var(--muted); font-size: .8rem; font-weight: 400; }
+.list-dd .dd-list { min-width: 230px; max-height: 70vh; }
+.list-dd .dd-list button { display: flex; align-items: baseline; gap: 12px; }
+.list-dd .ln { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.list-dd .lc { flex: none; font-size: .8rem; color: var(--muted); font-weight: 400; }
+.list-dd .dd-list .list-act { color: var(--muted); font-size: .93rem; }
+.list-dd .dd-list .list-act:first-of-type, .list-dd .dd-list button:not(.list-act) + .list-act { border-top: 1px solid var(--line); }
+.list-sheet h2 { margin-bottom: 12px; }
+.list-sheet input[type="text"] { width: 100%; margin: 4px 0 14px; border: 1px solid var(--line); background: var(--surface); color: inherit; border-radius: 10px; padding: 10px 12px; font: inherit; }
+.list-sheet .lbl-row { margin-bottom: 6px; }
+.list-people { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.list-people .person { display: flex; align-items: center; gap: 10px; padding: 10px 12px; cursor: pointer; }
+.list-people .person + .person { border-top: 1px solid var(--line); }
+.list-people input { width: 18px; height: 18px; accent-color: var(--accent); margin: 0; }
+.list-people input:disabled + .who { opacity: .85; }
+.list-sheet p.small { margin: 10px 2px 14px; }
+.list-del { display: flex; align-items: center; gap: 10px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.btn.ghost.danger-text { color: var(--danger-ink); }
+.list-pick { display: inline-block; min-width: 180px; }

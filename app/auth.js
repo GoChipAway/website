@@ -140,7 +140,7 @@
       let res;
       try { res = await call(false); if (res.status === 401) res = await call(true); }
       catch (e) { if (e instanceof AuthError) throw e; throw new AuthError("offline", "Couldn't reach ChipAway's server. Check the connection."); }
-      if (!res.ok) throw new AuthError("server", `Couldn't load that (${res.status})`);
+      if (!res.ok) { const e = new AuthError("server", `Couldn't load that (${res.status})`); e.status = res.status; throw e; }
       return res.json();
     }
 

@@ -208,8 +208,9 @@
     };
   }
 
-  function plan(st, { hours = null, budget = null, mode = "all", shuffle = 0, area = null, who = null, assignees = null, limits = null, now = null, avoid = null } = {}) {
+  function plan(st, { hours = null, budget = null, mode = "all", shuffle = 0, area = null, who = null, assignees = null, limits = null, now = null, avoid = null, only = null } = {}) {
     avoid = avoid && avoid.length ? new Set(avoid) : null;
+    only = only ? new Set(only) : null; // just these items (the list you're looking at); what they wait on can be anywhere
     mode = mode in MODES ? mode : "all";
     const unlocks = unlockCount(st);
     const rng = shuffle ? rngFor(shuffle) : null;
@@ -227,7 +228,7 @@
     let units = [];
     const waiting = [];
     for (const i of openLeaves) {
-      if (!areaOk(i) || !whoOk(i)) continue;
+      if (!areaOk(i) || !whoOk(i) || (only && !only.has(i))) continue;
       if (st.waiting_on[i].length) { waiting.push(i); continue; }
       units.push({ target: i, leaves: new Set([i]), own: new Set([i]) });
     }
