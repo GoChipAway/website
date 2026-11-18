@@ -248,7 +248,7 @@ h3 { font-size: .8rem; text-transform: uppercase; letter-spacing: .06em; color: 
 .pick-head .meta .faint { opacity: .75; }
 .pick-head .meta .sep { opacity: .6; }
 .pick-head .meta .doing-word { color: color-mix(in srgb, var(--doing) 85%, var(--muted)); }
-.pick-head .meta .lock { font-size: .8rem; opacity: .8; }
+.pick-head .meta .lock { display: inline-flex; color: var(--med); opacity: .85; margin-left: 2px; }
 .pick-head .nums { font-size: .9rem; text-align: right; white-space: nowrap; font-weight: 600; }
 
 .mini { display: flex; align-items: center; gap: 10px; padding: 11px 14px; text-decoration: none; }

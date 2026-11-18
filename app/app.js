@@ -1127,7 +1127,7 @@
     if (it.eff_difficulty) meta.push(`<span class="${it.difficulty ? "" : "faint"}">${cap(it.eff_difficulty)}</span>`);
     const names = showWho() ? (it.assignees || []).map((u) => esc(tagName(personById(u)))) : [];
     if (doing || names.length) meta.push(`<span class="doing-word">${doing ? "Doing" : ""}${doing && names.length ? " · " : ""}${names.join(", ")}</span>`);
-    const lock = it.unlocks > 0 ? ` <span class="lock" title="Unlocks ${it.unlocks} other${it.unlocks === 1 ? "" : "s"}" aria-label="Unlocks ${it.unlocks}">🔓</span>` : "";
+    const lock = it.unlocks > 0 ? ` <span class="lock" title="Unlocks ${it.unlocks} other${it.unlocks === 1 ? "" : "s"}" role="img" aria-label="Unlocks ${it.unlocks}"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M4.5 7V4.8a3 3 0 0 1 5.9-.8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><rect x="2.5" y="7" width="11" height="8" rx="2" fill="currentColor"/><circle cx="8" cy="11" r="1.2" fill="var(--surface)"/></svg></span>` : "";
     return `<div class="pick-head">
         <button class="check round${doing ? " half" : ""}" data-toggle="${it.id}" aria-label="Mark done" title="${doing ? "Doing. Tap to mark done" : "Mark done"}"></button>
         <div class="t"><a href="#/item/${it.id}">${esc(it.title)}</a>${sub}<div class="meta">${meta.join('<span class="sep">·</span>')}${lock}</div></div>
