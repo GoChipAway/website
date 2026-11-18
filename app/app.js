@@ -833,7 +833,7 @@
     ddOpts(dd).forEach((x) => x.setAttribute("aria-selected", String(x === o)));
     const changed = dd.dataset.value !== o.dataset.v;
     dd.dataset.value = o.dataset.v;
-    dd.querySelector(".dd-val").textContent = o.textContent;
+    dd.querySelector(".dd-val").textContent = (o.querySelector(".ln") || o).textContent; // not the count beside it
     ddClose(dd, true);
     if (changed) dd.dispatchEvent(new Event("change", { bubbles: true }));
   }
@@ -901,10 +901,14 @@
     return listById(l) ? l : "";
   }
   const listField = (key) => (key === "me" ? `me:${me()}` : key || "");
-  const listName = (key) => (key === "me" ? "Just me" : key ? (listById(key) || { name: "Everyone" }).name : "Everyone");
+  // On your own, the main list is "My list" (it becomes Everyone once someone joins), and Just me only shows if
+  // something is in it.
+  const solo = () => people().length <= 1;
+  const mainName = () => (solo() ? "My list" : "Everyone");
+  const listName = (key) => (key === "me" ? "Just me" : key ? (listById(key) || { name: mainName() }).name : mainName());
+  /** Lists are there whenever you're signed in (they live on the server), shared or not. */
   function listsOn() {
-    if (!signedIn() || !CLOUD.listsOk) return false;
-    return people().length > 1 || CLOUD.lists.length > 0 || S.items.some((i) => listKey(i) !== "");
+    return signedIn() && CLOUD.listsOk;
   }
   /** The list being looked at: "", "me" or a list id; null when there are no lists. */
   function curList() {
@@ -921,17 +925,34 @@
     return l ? people().filter((m) => l.people.includes(m.user_id)) : people();
   }
   const canManage = (l) => !!l && (l.created_by === me() || !people().some((m) => m.user_id === l.created_by));
-  const listOptions = () => [["", "Everyone"], ["me", "Just me"], ...CLOUD.lists.map((l) => [l.id, l.name])];
+  const listOptions = () => [["", mainName()], ...(solo() && !S.items.some((i) => listKey(i) === "me") ? [] : [["me", "Just me"]]),
+    ...CLOUD.lists.map((l) => [l.id, l.name])];
 
   // the switcher sits where the ChipAway name is in the top bar
   function drawListSwitcher() {
     const box = document.getElementById("listSw");
     if (!box) return;
     const cur = curList();
-    document.body.classList.toggle("has-lists", cur !== null);
+    // not signed in: lists live on the server, so the switcher offers signing in (free) to make one
+    const offer = cur === null && !!CLOUD.auth && !signedIn();
+    document.body.classList.toggle("has-lists", cur !== null || offer);
+    if (offer) {
+      box.innerHTML = `<div class="dd list-dd" id="listDD" data-value="">
+        <button type="button" class="dd-btn" aria-haspopup="listbox" aria-expanded="false" aria-label="List"><span class="dd-val">My list</span><span class="caret" aria-hidden="true">▾</span></button>
+        <div class="dd-list hidden" role="listbox" aria-label="List"><button type="button" role="option" data-v="" aria-selected="true"><span class="ln">My list</span></button><button type="button" role="option" class="list-act" data-v="__new" aria-selected="false">New list…</button></div></div>`;
+      document.getElementById("listDD").addEventListener("change", (e) => {
+        if (e.currentTarget.dataset.value !== "__new") return;
+        drawListSwitcher();
+        location.hash = "#/settings";
+        setTimeout(() => { const c = document.getElementById("syncCard"); if (c) c.scrollIntoView({ block: "start", behavior: "smooth" }); }, 100);
+        toast("Sign in (it's free) to make more lists, like a car project or the garage. They're on your phone and the web.");
+      });
+      return;
+    }
     if (cur === null) { box.innerHTML = ""; return; }
     const n = (key) => {
       const k = listPeople(key).length;
+      if (solo()) return "";
       return key === "me" ? "only you" : key === "" ? `all ${k}` : k === 1 ? "only you" : `${k} people`;
     };
     const l = listById(cur);
