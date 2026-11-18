@@ -1116,7 +1116,7 @@
 
   // one pick on the plan: everything picked can be started now, so each is a single item.
   // Kept to about two lines: round check on the left marks it done (Undo in the toast), tap the row to open it
-  // (Start lives there), Doing shows as a colored left edge plus who's on it, the rest is one muted line.
+  // (Start lives there). In progress: the check is half filled, and the muted line says "In progress · names".
   function pickHTML(p) {
     const it = S.byId[p.target];
     const doing = it.status === "doing";
@@ -1125,13 +1125,12 @@
     const pr = it.eff_priority;
     if (pr) meta.push(`<span class="p-${pr}${it.priority ? "" : " faint"}"><span class="dot"></span>${cap(pr)}</span>`);
     if (it.eff_difficulty) meta.push(`<span class="${it.difficulty ? "" : "faint"}">${cap(it.eff_difficulty)}</span>`);
-    const tags = showWho() ? (it.assignees || []).map((u) => `<span class="who-tag">${esc(tagName(personById(u)))}</span>`).join("") : "";
-    if (tags) meta.push(`<span class="tags">${tags}</span>`);
-    else if (doing) meta.push(`<span class="doing-word">Doing</span>`);
+    const names = showWho() ? (it.assignees || []).map((u) => esc(tagName(personById(u)))) : [];
+    if (doing || names.length) meta.push(`<span class="doing-word">${doing ? "In progress" : ""}${doing && names.length ? " · " : ""}${names.join(", ")}</span>`);
     const lock = it.unlocks > 0 ? ` <span class="lock" title="Unlocks ${it.unlocks} other${it.unlocks === 1 ? "" : "s"}" aria-label="Unlocks ${it.unlocks}">🔓</span>` : "";
     return `<div class="card pick${doing ? " is-doing" : ""}" data-open="${it.id}">
       <div class="pick-head">
-        <button class="check round" data-toggle="${it.id}" aria-label="Mark done" title="Mark done"></button>
+        <button class="check round${doing ? " half" : ""}" data-toggle="${it.id}" aria-label="Mark done${doing ? " (in progress)" : ""}" title="${doing ? "In progress. Tap to mark done" : "Mark done"}"></button>
         <div class="t"><a href="#/item/${it.id}">${esc(it.title)}</a>${sub}<div class="meta">${meta.join('<span class="sep">·</span>')}${lock}</div></div>
         ${thumbHTML(it)}<div class="nums">${money(p.cost)}<br><span class="muted">${hrs(p.hours)}</span></div>
       </div></div>`;

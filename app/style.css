@@ -232,10 +232,10 @@ h3 { font-size: .8rem; text-transform: uppercase; letter-spacing: .06em; color: 
 .bar span { display: block; height: 100%; background: var(--accent); border-radius: 99px; }
 
 .pick { padding: 0; cursor: pointer; overflow: hidden; }
-.pick.is-doing { box-shadow: inset 4px 0 0 var(--doing); }
 .pick-head { display: flex; gap: 12px; align-items: center; padding: 11px 14px; }
 .pick-head .check.round { border-radius: 50%; width: 26px; height: 26px; }
-.pick.is-doing .check.round { border-color: color-mix(in srgb, var(--doing) 70%, transparent); }
+.pick-head .check.round.half { border-color: color-mix(in srgb, var(--doing) 75%, transparent);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--doing) 60%, transparent) 50%, transparent 50%) content-box; padding: 3px; }
 .pick-head .t { flex: 1; min-width: 0; }
 .pick-head .t a { font-weight: 650; text-decoration: none; overflow-wrap: anywhere; }
 .pick-head .t .sub { font-size: .84rem; color: var(--muted); }
@@ -246,9 +246,7 @@ h3 { font-size: .8rem; text-transform: uppercase; letter-spacing: .06em; color: 
 .pick-head .meta .p-low { color: var(--low); }
 .pick-head .meta .faint { opacity: .75; }
 .pick-head .meta .sep { opacity: .6; }
-.pick-head .meta .doing-word { color: var(--doing); font-weight: 600; }
-.pick-head .meta .tags { display: inline-flex; gap: 4px; }
-.pick-head .meta .who-tag { font-size: .74rem; padding: 1px 7px; background: var(--doing-soft); color: var(--doing); }
+.pick-head .meta .doing-word { color: color-mix(in srgb, var(--doing) 85%, var(--muted)); }
 .pick-head .meta .lock { font-size: .8rem; opacity: .8; }
 .pick-head .nums { font-size: .9rem; text-align: right; white-space: nowrap; font-weight: 600; }
 
