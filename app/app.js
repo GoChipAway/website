@@ -973,7 +973,7 @@
     const mine = showWho() ? doingNow().filter((i) => !(i.assignees || []).length || i.assignees.includes(me())) : doing;
     return doing.length ? `<details class="doing-now${mine.length > S.settings.doing_limit ? " past-limit" : ""}" id="doingNow" ${recall("doingOpen", false) ? "open" : ""}>
         <summary><span class="lbl">Doing now · ${doing.length}</span><span class="names">${doing.map((i) => esc(i.title)).join(", ")}</span></summary>
-        <div class="card">${doing.map((i) => itemRow(i)).join("")}</div></details>` : "";
+        <div class="card">${doing.map((i) => `<div class="pick" data-open="${i.id}">${compactHeadHTML(i, i.cost, i.hours)}</div>`).join("")}</div></details>` : "";
   }
   function bindDoingBar() {
     const $dn = document.getElementById("doingNow");
@@ -1116,9 +1116,9 @@
 
   // one pick on the plan: everything picked can be started now, so each is a single item.
   // Kept to about two lines: round check on the left marks it done (Undo in the toast), tap the row to open it
-  // (Start lives there). In progress: the check is half filled, and the muted line says "In progress · names".
-  function pickHTML(p) {
-    const it = S.byId[p.target];
+  // (Start lives there). Doing: the check is half filled, and the muted line says "Doing · names".
+  // The Doing now panel at the top uses the same row.
+  function compactHeadHTML(it, cost, hours) {
     const doing = it.status === "doing";
     const sub = P.mode === "forgotten" ? `<div class="sub">added ${ago(it.created_at)}</div>` : "";
     const meta = [];
@@ -1126,14 +1126,17 @@
     if (pr) meta.push(`<span class="p-${pr}${it.priority ? "" : " faint"}"><span class="dot"></span>${cap(pr)}</span>`);
     if (it.eff_difficulty) meta.push(`<span class="${it.difficulty ? "" : "faint"}">${cap(it.eff_difficulty)}</span>`);
     const names = showWho() ? (it.assignees || []).map((u) => esc(tagName(personById(u)))) : [];
-    if (doing || names.length) meta.push(`<span class="doing-word">${doing ? "In progress" : ""}${doing && names.length ? " · " : ""}${names.join(", ")}</span>`);
+    if (doing || names.length) meta.push(`<span class="doing-word">${doing ? "Doing" : ""}${doing && names.length ? " · " : ""}${names.join(", ")}</span>`);
     const lock = it.unlocks > 0 ? ` <span class="lock" title="Unlocks ${it.unlocks} other${it.unlocks === 1 ? "" : "s"}" aria-label="Unlocks ${it.unlocks}">🔓</span>` : "";
-    return `<div class="card pick${doing ? " is-doing" : ""}" data-open="${it.id}">
-      <div class="pick-head">
-        <button class="check round${doing ? " half" : ""}" data-toggle="${it.id}" aria-label="Mark done${doing ? " (in progress)" : ""}" title="${doing ? "In progress. Tap to mark done" : "Mark done"}"></button>
+    return `<div class="pick-head">
+        <button class="check round${doing ? " half" : ""}" data-toggle="${it.id}" aria-label="Mark done" title="${doing ? "Doing. Tap to mark done" : "Mark done"}"></button>
         <div class="t"><a href="#/item/${it.id}">${esc(it.title)}</a>${sub}<div class="meta">${meta.join('<span class="sep">·</span>')}${lock}</div></div>
-        ${thumbHTML(it)}<div class="nums">${money(p.cost)}<br><span class="muted">${hrs(p.hours)}</span></div>
-      </div></div>`;
+        ${thumbHTML(it)}<div class="nums">${money(cost)}<br><span class="muted">${hrs(hours)}</span></div>
+      </div>`;
+  }
+  function pickHTML(p) {
+    const it = S.byId[p.target];
+    return `<div class="card pick" data-open="${it.id}">${compactHeadHTML(it, p.cost, p.hours)}</div>`;
   }
 
   const miniHTML = (a) => {

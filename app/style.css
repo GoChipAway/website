@@ -232,6 +232,7 @@ h3 { font-size: .8rem; text-transform: uppercase; letter-spacing: .06em; color: 
 .bar span { display: block; height: 100%; background: var(--accent); border-radius: 99px; }
 
 .pick { padding: 0; cursor: pointer; overflow: hidden; }
+.pick + .pick:not(.card) { border-top: 1px solid var(--line); }
 .pick-head { display: flex; gap: 12px; align-items: center; padding: 11px 14px; }
 .pick-head .check.round { border-radius: 50%; width: 26px; height: 26px; }
 .pick-head .check.round.half { border-color: color-mix(in srgb, var(--doing) 75%, transparent);
