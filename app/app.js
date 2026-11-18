@@ -1075,7 +1075,7 @@
           <div class="m"><div class="lbl">Cost</div><div class="val">${money(res.used_cost, { free: false })}${res.budget !== null ? ` <span class="muted small">of ${money(res.budget, { free: false })}</span>` : ""}</div>${res.budget ? `<div class="bar"><span style="width:${pctC}%"></span></div>` : ""}</div>
         </div>`;
       }
-      html += `<div class="list">${res.plan.map((p, i) => pickHTML(p, i + 1)).join("")}</div>
+      html += `<div class="list">${res.plan.map((p) => pickHTML(p)).join("")}</div>
         <div class="shuffle-row"><button class="btn" id="shuffle" title="Show a different mix">↻ Something else</button></div>`;
     }
     if (res.also.length) {
@@ -1114,16 +1114,27 @@
     return html;
   }
 
-  // one pick on the plan: everything picked can be started now, so each is a single item
-  function pickHTML(p, n) {
+  // one pick on the plan: everything picked can be started now, so each is a single item.
+  // Kept to about two lines: round check on the left marks it done (Undo in the toast), tap the row to open it
+  // (Start lives there), Doing shows as a colored left edge plus who's on it, the rest is one muted line.
+  function pickHTML(p) {
     const it = S.byId[p.target];
+    const doing = it.status === "doing";
     const sub = P.mode === "forgotten" ? `<div class="sub">added ${ago(it.created_at)}</div>` : "";
-    const actions = `<div class="pick-actions">${it.status === "todo" ? `<button class="btn small" data-start="${it.id}">Start it</button>` : ""}<button class="btn small ${it.status === "doing" ? "finish" : "primary"}" data-toggle="${it.id}">Mark done</button></div>`;
-    return `<div class="card pick">
-      <div class="pick-head"><span class="n">${n}</span>
-        <div class="t"><a href="#/item/${it.id}">${esc(it.title)}</a>${sub}<div class="chips" style="margin-top:5px">${chipsFor(it, { compact: true })}</div></div>
+    const meta = [];
+    const pr = it.eff_priority;
+    if (pr) meta.push(`<span class="p-${pr}${it.priority ? "" : " faint"}"><span class="dot"></span>${cap(pr)}</span>`);
+    if (it.eff_difficulty) meta.push(`<span class="${it.difficulty ? "" : "faint"}">${cap(it.eff_difficulty)}</span>`);
+    const tags = showWho() ? (it.assignees || []).map((u) => `<span class="who-tag">${esc(tagName(personById(u)))}</span>`).join("") : "";
+    if (tags) meta.push(`<span class="tags">${tags}</span>`);
+    else if (doing) meta.push(`<span class="doing-word">Doing</span>`);
+    const lock = it.unlocks > 0 ? ` <span class="lock" title="Unlocks ${it.unlocks} other${it.unlocks === 1 ? "" : "s"}" aria-label="Unlocks ${it.unlocks}">🔓</span>` : "";
+    return `<div class="card pick${doing ? " is-doing" : ""}" data-open="${it.id}">
+      <div class="pick-head">
+        <button class="check round" data-toggle="${it.id}" aria-label="Mark done" title="Mark done"></button>
+        <div class="t"><a href="#/item/${it.id}">${esc(it.title)}</a>${sub}<div class="meta">${meta.join('<span class="sep">·</span>')}${lock}</div></div>
         ${thumbHTML(it)}<div class="nums">${money(p.cost)}<br><span class="muted">${hrs(p.hours)}</span></div>
-      </div>${actions}</div>`;
+      </div></div>`;
   }
 
   const miniHTML = (a) => {
