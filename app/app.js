@@ -349,6 +349,28 @@
     drawListSwitcher();
   }
 
+  /** Delete my account (Google Play requires it in the app). The server can't remove photo files itself, so the
+   *  photos that go with the account (account_photos() in supabase/schema.sql) are removed first; if that fails,
+   *  nothing is deleted. Then the server deletes the account, and this device signs out, keeping the list. */
+  async function deleteAccount() {
+    stopSyncer();
+    try {
+      const household = CLOUD.household || await CLOUD.auth.rpc("ensure_household", { my_name: CLOUD.auth.displayName });
+      const rows = (await CLOUD.auth.rpc("account_photos")) || [];
+      // PostgREST may answer a set of text as plain strings or as { account_photos: "..." }
+      const ids = rows.map((r) => (r && typeof r === "object" ? r.account_photos : r)).filter(Boolean);
+      const remote = new FeasibleCloud.SupabaseRemote({
+        url: Native.cloud.url, key: Native.cloud.key, household, getToken: (fresh) => CLOUD.auth.token(fresh),
+      });
+      for (let i = 0; i < ids.length; i += 200) await remote.removePhotos(ids.slice(i, i + 200));
+      await CLOUD.auth.rpc("delete_my_account");
+    } catch (e) {
+      startSyncer();
+      throw e;
+    }
+    await signOut();
+  }
+
   // Back from Google's sign-in in a browser: the session is in the address.
   async function finishRedirect() {
     if (!CLOUD.auth || !/access_token=|error_description=/.test(location.hash)) return false;
@@ -418,6 +440,8 @@
   const tagName = (m) => (m.name || "").trim() || String(m.email || "Someone").split("@")[0];
   // changing your own name, kept while Settings redraws
   const RENAME = { who: null };
+  // Delete my account: the explanation and the last button, kept open while Settings redraws
+  const DELACC = { open: false };
 
   function cloudCardHTML() {
     const where = Native.isApp ? "phone" : "computer";
@@ -463,7 +487,12 @@
       ${owner && CLOUD.members.length < MAX_PEOPLE ? `<div class="pad"><label class="small muted" for="inviteEmail">Invite someone by email</label>
         <div class="row-btns"><input id="inviteEmail" type="email" autocomplete="off" placeholder="their@email.com"><button class="btn primary" id="inviteSend">Invite</button></div></div>` : ""}
       ${shared() ? `<div class="set-row"><div class="t">Leave this list<div class="sub">You keep a copy of everything on this ${where}, as your own list.</div></div><button class="btn" id="cloudLeave">Leave</button></div>` : ""}
-      <div class="set-row"><div class="t">Sign out<div class="sub">Everything stays on this ${where}. It just stops syncing.</div></div><button class="btn" id="cloudOut">Sign out</button></div>`;
+      <div class="set-row"><div class="t">Sign out<div class="sub">Everything stays on this ${where}. It just stops syncing.</div></div><button class="btn" id="cloudOut">Sign out</button></div>
+      <div class="set-row"><div class="t">Delete my account<div class="sub">Removes your sign-in and what's only yours from ChipAway's server. Your list stays on this ${where}.</div></div><button class="btn danger" id="accDelete">Delete…</button></div>
+      ${DELACC.open ? `<div class="pad"><div class="confirm acc-confirm"><p>Delete your ChipAway account? This removes your sign-in, your name and email, your Just me items and any list only you are on from ChipAway's server.
+        ${shared() ? "What you added to the shared list stays there for the others, without your name." : "Your list on the server goes too."}
+        Everything stays on this ${where}, and you can keep using ChipAway without signing in. This can't be undone.</p>
+        <div class="row-btns"><button class="btn small danger-solid" id="accDeleteYes">Delete my account</button><button class="btn small" id="accDeleteNo">Keep it</button></div></div></div>` : ""}`;
   }
 
   function wireCloudCard() {
@@ -559,6 +588,14 @@
     on("nameSave", (e) => saveName(e.currentTarget));
     const nameBox = document.getElementById("myName");
     if (nameBox) nameBox.addEventListener("keydown", (e) => { if (e.key === "Enter") saveName(document.getElementById("nameSave")); });
+    on("accDelete", () => { DELACC.open = !DELACC.open; renderSettings(); });
+    on("accDeleteNo", () => { DELACC.open = false; renderSettings(); });
+    on("accDeleteYes", (e) => busy(e.currentTarget, async () => {
+      await deleteAccount();
+      DELACC.open = false;
+      toast("Your account is deleted. Everything is still here.");
+      renderSettings();
+    }));
     on("cloudOut", (e) => busy(e.currentTarget, async () => {
       await signOut();
       toast("Signed out. Everything is still here.");

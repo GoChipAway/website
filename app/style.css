@@ -123,6 +123,7 @@ h3 { font-size: .8rem; text-transform: uppercase; letter-spacing: .06em; color: 
 .btn:hover { border-color: color-mix(in srgb, var(--text) 25%, var(--line)); }
 .btn.primary, .btn.add { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .btn.danger { background: var(--danger-soft); color: var(--danger-ink); border-color: transparent; }
+.btn.danger-solid { background: var(--danger-ink); color: var(--bg); border-color: transparent; }
 .btn.ghost { background: transparent; border-color: transparent; color: var(--muted); }
 .btn.small { padding: 5px 10px; min-height: 32px; font-size: .88rem; }
 .btn:disabled { opacity: .5; cursor: default; }
@@ -543,3 +544,5 @@ body.welcoming .tabs, body.welcoming [data-tab="settings"], body.welcoming .top 
   .list-dd .dd-btn { font-size: 1rem; padding: 6px 6px; max-width: 34vw; }
   .has-lists .btn.add { padding: 7px 10px; font-size: .93rem; }
 }
+.acc-confirm { display: block; }
+.acc-confirm p { margin: 0 0 10px; line-height: 1.45; }
