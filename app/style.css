@@ -185,7 +185,14 @@ h3 { font-size: .8rem; text-transform: uppercase; letter-spacing: .06em; color: 
 /* location: a full-width row under time and budget, same look as those boxes */
 .loc { position: relative; display: flex; align-items: center; gap: 8px; margin-top: 10px; background: var(--bg);
   border: 1px solid var(--line); border-radius: 12px; padding: 0 12px; }
-#fitBox.hidden + .loc { margin-top: 0; }
+/* Location and Who share one row under time and budget */
+.pick-row { display: flex; gap: 8px; margin-top: 10px; }
+.pick-row .loc { flex: 1 1 0; min-width: 0; margin-top: 0; }
+#fitBox.hidden + .pick-row { margin-top: 0; }
+.pick-row .loc + .loc .dd-list { left: auto; }
+.dd.multi .dd-list button { display: flex; align-items: center; gap: 10px; }
+.dd.multi .ck { width: 1em; flex: none; visibility: hidden; }
+.dd.multi [aria-selected="true"] .ck { visibility: visible; }
 .loc .dd-icon { font-size: 1.05rem; line-height: 1; }
 .loc .dd-btn { padding: 12px 22px 12px 0; font-size: 1.02rem; font-weight: 600; }
 .loc .dd-list { left: -1px; right: -1px; }

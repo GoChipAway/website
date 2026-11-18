@@ -720,7 +720,7 @@
   }
   document.addEventListener("click", (e) => {
     const o = e.target.closest(".dd-list [data-v]");
-    if (o) { ddPick(o.closest(".dd"), o); return; }
+    if (o) { const dd = o.closest(".dd"); dd.classList.contains("multi") ? whoToggle(dd, o) : ddPick(dd, o); return; }
     const b = e.target.closest(".dd-btn"), mine = b && b.closest(".dd");
     document.querySelectorAll(".dd.open").forEach((d) => d !== mine && ddClose(d));
     if (mine) mine.classList.contains("open") ? ddClose(mine) : ddOpen(mine);
@@ -871,7 +871,7 @@
   // Every time the app opens: Anything, 8 hours, $500. Fit/Everything and location are remembered.
   // The plan only ever shows things you can start now; anything waiting on prep is listed under Show everything.
   const PLAN_START = { hours: 8, budget: 500, mode: "all" };
-  const P = { all: false, area: "", ...recall("plan", {}), ...PLAN_START };
+  const P = { all: false, area: "", who: [], ...recall("plan", {}), ...PLAN_START };
   delete P.view; // left over in what older builds remembered
   let planSeed = 0;
   let planAvoid = []; // picks already shown since the last change; "Something else" skips them
@@ -886,14 +886,9 @@
       return;
     }
     // what's already started: one line, tap to see them. Red-ish once you're past your limit.
-    const doing = doingNow();
-    // shared list: the limit is per person (what you're on, plus anything nobody's on)
-    const mine = showWho() ? doing.filter((i) => !(i.assignees || []).length || i.assignees.includes(me())) : doing;
-    const doingBar = doing.length ? `<details class="doing-now${mine.length > S.settings.doing_limit ? " past-limit" : ""}" id="doingNow" ${recall("doingOpen", false) ? "open" : ""}>
-        <summary><span class="lbl">Doing now · ${doing.length}</span><span class="names">${doing.map((i) => esc(i.title)).join(", ")}</span></summary>
-        <div class="card">${doing.map((i) => itemRow(i)).join("")}</div></details>` : "";
+    if (P.who.length) P.who = P.who.filter((v) => v === "me" || v === "none" || people().some((m) => m.user_id === v && m.user_id !== me()));
     $app.innerHTML = `
-      ${doingBar}
+      <div id="doingWrap">${doingBarHTML()}</div>
       <section class="card ask">
         <div class="seg full scope" role="radiogroup" aria-label="What to show">
           <button data-all="0" class="${P.all ? "" : "on"}">Fit my time &amp; money</button>
@@ -905,7 +900,7 @@
           <div class="limit"><label for="budget">Budget · $</label><input id="budget" type="tel" inputmode="numeric" pattern="[0-9]*" enterkeyhint="done" autocomplete="off" placeholder="any" value="${P.budget ?? ""}"><button class="clear" data-clear="budget" title="No budget limit">×</button></div>
         </div>
         </div>
-        ${S.areas.length ? ddHTML("area", "Location", [["", "Anywhere"], ...S.areas.map((a) => [a, a])], P.area, { icon: "📍", cls: "loc" }) : ""}
+        ${S.areas.length || showWho() ? `<div class="pick-row">${S.areas.length ? ddHTML("area", "Location", [["", "Anywhere"], ...S.areas.map((a) => [a, a])], P.area, { icon: "📍", cls: "loc" }) : ""}${whoFilterHTML()}</div>` : ""}
         <div class="modes" role="radiogroup" aria-label="Mood">${MODE_ORDER.map((m) => `<button class="mode${P.mode === m ? " on" : ""}" data-mode="${m}" role="radio" aria-checked="${P.mode === m}">${esc(S.modes[m] || m)}</button>`).join("")}</div>
         <div class="mode-hint" id="modeHint">${modeHint(P.mode)}</div>
       </section>
@@ -936,8 +931,7 @@
       setHM("hours", v);
       update();
     }));
-    const $dn = document.getElementById("doingNow");
-    if ($dn) $dn.addEventListener("toggle", () => store("doingOpen", $dn.open));
+    bindDoingBar();
     $app.querySelectorAll("[data-clear]").forEach((b) => b.addEventListener("click", () => {
       if (b.dataset.clear === "hours") setHM("hours", null);
       else document.getElementById(b.dataset.clear).value = "";
@@ -958,10 +952,79 @@
       document.getElementById("fitBox").classList.toggle("hidden", P.all);
       update();
     }));
+    const $whoF = document.getElementById("whoF");
+    if ($whoF) $whoF.addEventListener("change", () => {
+      P.who = JSON.parse($whoF.dataset.value || "[]");
+      update();
+      document.getElementById("doingWrap").innerHTML = doingBarHTML();
+      bindDoingBar();
+    });
     const $area = document.getElementById("area");
     if ($area) $area.addEventListener("change", () => { P.area = $area.dataset.value; update(); });
     if (P.area && !S.areas.includes(P.area)) P.area = "";
     runPlan();
+  }
+
+  // what's already started: one line, tap to see them. Red-ish once you're past your limit.
+  // With a Who filter on, it lists only theirs too.
+  function doingBarHTML() {
+    const doing = doingNow().filter(whoMatches);
+    // shared list: the limit is per person (what you're on, plus anything nobody's on)
+    const mine = showWho() ? doingNow().filter((i) => !(i.assignees || []).length || i.assignees.includes(me())) : doing;
+    return doing.length ? `<details class="doing-now${mine.length > S.settings.doing_limit ? " past-limit" : ""}" id="doingNow" ${recall("doingOpen", false) ? "open" : ""}>
+        <summary><span class="lbl">Doing now · ${doing.length}</span><span class="names">${doing.map((i) => esc(i.title)).join(", ")}</span></summary>
+        <div class="card">${doing.map((i) => itemRow(i)).join("")}</div></details>` : "";
+  }
+  function bindDoingBar() {
+    const $dn = document.getElementById("doingNow");
+    if ($dn) $dn.addEventListener("toggle", () => store("doingOpen", $dn.open));
+  }
+
+  // ---------- Who filter (shared lists): Everyone unless you pick people; you can pick several ----------
+  // P.who holds "me", "none" (nobody's on it) and other people's ids; "me" follows whoever is signed in.
+  function planWho() {
+    if (!showWho() || !P.who.length) return null;
+    return P.who.map((v) => (v === "me" ? me() : v));
+  }
+  function whoMatches(it) {
+    const who = planWho();
+    if (!who) return true;
+    const on = it.assignees || [];
+    return on.length ? on.some((u) => who.includes(u)) : who.includes("none");
+  }
+  function whoOptions() {
+    const others = people().filter((m) => m.user_id !== me()).map((m) => [m.user_id, tagName(m)]);
+    return [["me", "Me"], ...others, ["none", "Unassigned"]];
+  }
+  function whoLabel(sel) {
+    if (!sel.length) return "Everyone";
+    const names = whoOptions().filter(([v]) => sel.includes(v)).map(([, n]) => n);
+    return names.join(" + ");
+  }
+  function whoFilterHTML() {
+    if (!showWho()) return "";
+    const sel = P.who;
+    const opts = [["", "Everyone"], ...whoOptions()];
+    return `<div class="dd loc multi" id="whoF" data-value="${esc(JSON.stringify(sel))}">
+      <button type="button" class="dd-btn" aria-haspopup="listbox" aria-expanded="false" aria-label="Who"><span class="dd-icon" aria-hidden="true">👤</span><span class="dd-val">${esc(whoLabel(sel))}</span></button>
+      <div class="dd-list hidden" role="listbox" aria-label="Who" aria-multiselectable="true">${opts.map(([v, n]) => {
+        const on = v ? sel.includes(v) : !sel.length;
+        return `<button type="button" role="option" data-v="${esc(v)}" aria-selected="${on}"><span class="ck" aria-hidden="true">✓</span>${esc(n)}</button>`;
+      }).join("")}</div></div>`;
+  }
+  // a tap adds or removes that person and keeps the list open; Everyone clears the picks
+  function whoToggle(dd, o) {
+    let sel = JSON.parse(dd.dataset.value || "[]");
+    const v = o.dataset.v;
+    if (!v) sel = [];
+    else sel = sel.includes(v) ? sel.filter((x) => x !== v) : [...sel, v];
+    // picking every option is the same as Everyone
+    if (sel.length >= whoOptions().length) sel = [];
+    dd.dataset.value = JSON.stringify(sel);
+    ddOpts(dd).forEach((x) => x.setAttribute("aria-selected", String(x.dataset.v ? sel.includes(x.dataset.v) : !sel.length)));
+    dd.querySelector(".dd-val").textContent = whoLabel(sel);
+    if (!v) ddClose(dd, true);
+    dd.dispatchEvent(new Event("change", { bubbles: true }));
   }
 
   async function runPlan() {
@@ -969,7 +1032,7 @@
     if (!$r) return;
     let res;
     try {
-      res = await api("/api/plan", { method: "POST", body: { hours: P.all ? null : P.hours, budget: P.all ? null : P.budget, mode: P.mode, shuffle: planSeed, area: P.area || null, avoid: planAvoid } });
+      res = await api("/api/plan", { method: "POST", body: { hours: P.all ? null : P.hours, budget: P.all ? null : P.budget, mode: P.mode, shuffle: planSeed, area: P.area || null, who: planWho(), avoid: planAvoid } });
     } catch (e) { $r.innerHTML = `<div class="card empty"><p>${esc(e.message)}</p></div>`; return; }
     if (!document.getElementById("results")) return;
     $r.innerHTML = planHTML(res);
@@ -1192,7 +1255,8 @@
     facts += fact("Priority", it.priority ? cap(it.priority) : dash);
     facts += fact("Difficulty", it.difficulty ? cap(it.difficulty) : dash);
     facts += fact("Location", it.area ? esc(it.area) : dash);
-    facts += fact("Added", `${fmtDate(it.created_at)} <span class="inh">${ago(it.created_at)}</span>`);
+    const by = showWho() && it.created_by ? ` <span class="inh">by ${it.created_by === me() ? "you" : esc(tagName(personById(it.created_by)))}</span>` : "";
+    facts += fact("Added", `${fmtDate(it.created_at)} <span class="inh">${ago(it.created_at)}</span>${by}`);
 
     const cur = done ? "done" : it.status === "doing" ? "doing" : "todo";
     const actions = `<div class="seg status-seg" role="radiogroup" aria-label="Status">${[["todo", "To do"], ["doing", "Doing"], ["done", "Done"]]

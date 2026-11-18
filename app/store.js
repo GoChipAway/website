@@ -203,8 +203,11 @@
         started_at: null, done_at: null, deleted_at: null, _ts: {},
         ...fields,
       };
+      // who wrote it down (when signed in): shown as "added by" on a shared list
+      if (this.me && !rec.created_by) rec.created_by = String(this.me);
       const ms = Date.now();
       for (const f of ITEM_FIELDS) rec._ts[f] = ms;
+      if (rec.created_by) rec._ts.created_by = ms;
       this.doc.items[rec.id] = rec;
       return rec;
     }
@@ -487,6 +490,7 @@
       return L.plan(this.state(), {
         hours, budget, mode: body.mode || "all", // only things you can start now; waiting ones come back in res.waiting
         shuffle: Number(body.shuffle) || 0, area: body.area || null, limits: this.settingsValues(),
+        who: Array.isArray(body.who) && body.who.length ? body.who.map(String) : null, assignees: this.assigneesByItem(),
         avoid: Array.isArray(body.avoid) ? body.avoid : null,
       });
     }

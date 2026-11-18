@@ -208,19 +208,26 @@
     };
   }
 
-  function plan(st, { hours = null, budget = null, mode = "all", shuffle = 0, area = null, limits = null, now = null, avoid = null } = {}) {
+  function plan(st, { hours = null, budget = null, mode = "all", shuffle = 0, area = null, who = null, assignees = null, limits = null, now = null, avoid = null } = {}) {
     avoid = avoid && avoid.length ? new Set(avoid) : null;
     mode = mode in MODES ? mode : "all";
     const unlocks = unlockCount(st);
     const rng = shuffle ? rngFor(shuffle) : null;
     const openLeaves = st.order.filter((i) => st.isOpen(i));
     const areaOk = (i) => !area || (st.items[i].area || "").trim().toLowerCase() === area.trim().toLowerCase();
+    // shared lists: only what these people are on ("none" = nobody's on it yet). No list = everyone.
+    const whoSet = who && who.length ? new Set(who) : null;
+    const whoOk = (i) => {
+      if (!whoSet) return true;
+      const on = (assignees && assignees[i]) || [];
+      return on.length ? on.some((u) => whoSet.has(u)) : whoSet.has("none");
+    };
 
     // only what you can start right now, each on its own. Blocked ones are listed separately so they stay visible.
     let units = [];
     const waiting = [];
     for (const i of openLeaves) {
-      if (!areaOk(i)) continue;
+      if (!areaOk(i) || !whoOk(i)) continue;
       if (st.waiting_on[i].length) { waiting.push(i); continue; }
       units.push({ target: i, leaves: new Set([i]), own: new Set([i]) });
     }
