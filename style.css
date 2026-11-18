@@ -46,6 +46,7 @@ header.top nav a:hover { color: var(--text); }
 .pc { display: grid; grid-template-columns: .8fr 1.2fr; gap: 40px; align-items: center; padding: 0 0 64px; }
 .pc h2, .video h2 { font-size: 1.6rem; letter-spacing: -.015em; margin: 0 0 10px; }
 .pc p { color: var(--muted); margin: 0; }
+.pc p + p { margin-top: 10px; }
 .pc figure { margin: 0; }
 .pc img { display: block; width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--line); border-top: 22px solid var(--line); box-shadow: 0 16px 40px rgba(31, 42, 38, .14); }
 .video { padding: 0 0 72px; text-align: center; }
