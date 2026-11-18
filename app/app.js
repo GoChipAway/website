@@ -686,6 +686,58 @@
     if (e.key === "ArrowRight") v.querySelector('[data-act="next"]')?.click();
     if (e.key === "ArrowLeft") v.querySelector('[data-act="prev"]')?.click();
   });
+
+  // Our own dropdown instead of <select>: desktop browsers draw a native select's popup white with
+  // pale text in dark mode. Fires "change" on the .dd element; the choice is in dataset.value.
+  function ddHTML(id, label, opts, value, { icon = "", cls = "" } = {}) {
+    const cur = opts.find(([v]) => v === value) || opts[0];
+    return `<div class="dd ${cls}" id="${id}" data-value="${esc(cur[0])}">
+      <button type="button" class="dd-btn" aria-haspopup="listbox" aria-expanded="false" aria-label="${esc(label)}">${icon ? `<span class="dd-icon" aria-hidden="true">${icon}</span>` : ""}<span class="dd-val">${esc(cur[1])}</span></button>
+      <div class="dd-list hidden" role="listbox" aria-label="${esc(label)}">${opts.map(([v, n]) => `<button type="button" role="option" data-v="${esc(v)}" aria-selected="${v === cur[0]}">${esc(n)}</button>`).join("")}</div></div>`;
+  }
+  const ddOpts = (dd) => [...dd.querySelectorAll(".dd-list [data-v]")];
+  function ddClose(dd, focus) {
+    dd.classList.remove("open");
+    dd.querySelector(".dd-list").classList.add("hidden");
+    dd.querySelector(".dd-btn").setAttribute("aria-expanded", "false");
+    if (focus) dd.querySelector(".dd-btn").focus();
+  }
+  function ddOpen(dd) {
+    document.querySelectorAll(".dd.open").forEach((d) => d !== dd && ddClose(d));
+    dd.classList.add("open");
+    dd.querySelector(".dd-list").classList.remove("hidden");
+    dd.querySelector(".dd-btn").setAttribute("aria-expanded", "true");
+    const o = dd.querySelector('.dd-list [aria-selected="true"]') || ddOpts(dd)[0];
+    if (o) { o.focus({ preventScroll: true }); o.scrollIntoView({ block: "nearest" }); }
+  }
+  function ddPick(dd, o) {
+    ddOpts(dd).forEach((x) => x.setAttribute("aria-selected", String(x === o)));
+    const changed = dd.dataset.value !== o.dataset.v;
+    dd.dataset.value = o.dataset.v;
+    dd.querySelector(".dd-val").textContent = o.textContent;
+    ddClose(dd, true);
+    if (changed) dd.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+  document.addEventListener("click", (e) => {
+    const o = e.target.closest(".dd-list [data-v]");
+    if (o) { ddPick(o.closest(".dd"), o); return; }
+    const b = e.target.closest(".dd-btn"), mine = b && b.closest(".dd");
+    document.querySelectorAll(".dd.open").forEach((d) => d !== mine && ddClose(d));
+    if (mine) mine.classList.contains("open") ? ddClose(mine) : ddOpen(mine);
+  });
+  document.addEventListener("keydown", (e) => {
+    const dd = e.target.closest && e.target.closest(".dd");
+    if (!dd) return;
+    const open = dd.classList.contains("open"), opts = ddOpts(dd), i = opts.indexOf(e.target);
+    if (e.key === "Escape" && open) { e.preventDefault(); ddClose(dd, true); }
+    else if (e.key === "Tab" && open) ddClose(dd);
+    else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (!open) { ddOpen(dd); return; }
+      const n = opts[Math.max(0, Math.min(opts.length - 1, i + (e.key === "ArrowDown" ? 1 : -1)))];
+      n.focus(); n.scrollIntoView({ block: "nearest" });
+    } else if ((e.key === "Home" || e.key === "End") && open) { e.preventDefault(); (e.key === "Home" ? opts[0] : opts[opts.length - 1]).focus(); }
+  });
   const isDone = (it) => it.derived_status === "done";
   const PRI_RANK = { high: 3, medium: 2, low: 1 };
   const DIFF_RANK = { easy: 1, medium: 2, hard: 3 };
@@ -833,7 +885,6 @@
         <a class="btn primary" href="#/new">Add your first project</a></div>`;
       return;
     }
-    const areaOpts = S.areas.map((a) => `<option ${P.area === a ? "selected" : ""}>${esc(a)}</option>`).join("");
     // what's already started: one line, tap to see them. Red-ish once you're past your limit.
     const doing = doingNow();
     // shared list: the limit is per person (what you're on, plus anything nobody's on)
@@ -854,7 +905,7 @@
           <div class="limit"><label for="budget">Budget · $</label><input id="budget" type="tel" inputmode="numeric" pattern="[0-9]*" enterkeyhint="done" autocomplete="off" placeholder="any" value="${P.budget ?? ""}"><button class="clear" data-clear="budget" title="No budget limit">×</button></div>
         </div>
         </div>
-        ${S.areas.length ? `<label class="loc"><span aria-hidden="true">📍</span><select id="area" aria-label="Location"><option value="">Anywhere</option>${areaOpts}</select></label>` : ""}
+        ${S.areas.length ? ddHTML("area", "Location", [["", "Anywhere"], ...S.areas.map((a) => [a, a])], P.area, { icon: "📍", cls: "loc" }) : ""}
         <div class="modes" role="radiogroup" aria-label="Mood">${MODE_ORDER.map((m) => `<button class="mode${P.mode === m ? " on" : ""}" data-mode="${m}" role="radio" aria-checked="${P.mode === m}">${esc(S.modes[m] || m)}</button>`).join("")}</div>
         <div class="mode-hint" id="modeHint">${modeHint(P.mode)}</div>
       </section>
@@ -908,7 +959,7 @@
       update();
     }));
     const $area = document.getElementById("area");
-    if ($area) $area.addEventListener("change", () => { P.area = $area.value; update(); });
+    if ($area) $area.addEventListener("change", () => { P.area = $area.dataset.value; update(); });
     if (P.area && !S.areas.includes(P.area)) P.area = "";
     runPlan();
   }
@@ -1090,7 +1141,7 @@
       <h1>Projects</h1>
       <div class="toolbar">
         <input class="search" id="q" type="search" placeholder="Search" value="${esc(L.q)}" aria-label="Search projects">
-        <select class="plain" id="sort" aria-label="Sort by">${Object.entries(SORTS).map(([k, [n]]) => `<option value="${k}" ${L.sort === k ? "selected" : ""}>${n}</option>`).join("")}</select>
+        ${ddHTML("sort", "Sort by", Object.entries(SORTS).map(([k, [n]]) => [k, n]), L.sort, { cls: "plain" })}
       </div>
       <div class="filters" id="filters"></div>
       <div id="listOut" style="margin-top:12px"></div>`;
@@ -1117,7 +1168,7 @@
       store("list", L);
     };
     document.getElementById("q").addEventListener("input", (e) => { L.q = e.target.value; draw(); });
-    document.getElementById("sort").addEventListener("change", (e) => { L.sort = e.target.value; draw(); });
+    document.getElementById("sort").addEventListener("change", (e) => { L.sort = e.currentTarget.dataset.value; draw(); });
     document.getElementById("filters").addEventListener("click", (e) => {
       const b = e.target.closest("[data-filter]"); if (!b) return; L.filter = b.dataset.filter; draw();
     });
