@@ -434,11 +434,7 @@
       if (!it) notFound();
       const user = String((body || {}).user_id || "");
       if (!user) bad("Who?");
-      this.setAssigned(itemId, user, !!body.on);
-      if (body.on && it.status === "todo") {
-        const [started, done] = this.statusTimes(it, "doing");
-        this.setMany(this.doc.items[itemId], { status: "doing", started_at: started, done_at: done });
-      }
+      this.setAssigned(itemId, user, !!body.on); // only says who it's for: the status stays as it is
       await this.save();
       return this.fullView();
     }

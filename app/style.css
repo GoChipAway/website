@@ -435,7 +435,11 @@ body.welcoming .tabs, body.welcoming [data-tab="settings"], body.welcoming .top 
 .row-btns { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
 .row-btns input { flex: 1 1 180px; }
 .set-row.row-btns { margin-top: 0; }
-.row-btns.tight { margin-top: 0; flex-wrap: nowrap; flex: none; }
+.row-btns.tight { margin-top: 0; flex: 0 1 auto; justify-content: flex-end; }
+#syncCard .set-row .t { min-width: 0; }
+#syncCard .set-row .t .sub.one { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row-btns.tight .btn { white-space: nowrap; }
+@media (max-width: 560px) { .row-btns.tight { flex-direction: column; align-items: stretch; gap: 6px; } .row-btns.tight .btn { padding: 6px 12px; min-height: 34px; } }
 .who { flex: none; width: 34px; height: 34px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
   background: var(--accent-soft, rgba(127, 127, 127, .18)); font-weight: 600; font-size: .85rem; margin-right: 10px; }
 .btn.block { width: 100%; justify-content: center; margin-top: 12px; }
