@@ -955,7 +955,7 @@
     const n = (key) => {
       const k = listPeople(key).length;
       if (solo()) return "";
-      return key === "me" ? "only you" : key === "" ? `all ${k}` : k === 1 ? "only you" : `${k} people`;
+      return key === "me" || k === 1 ? "private" : "shared";
     };
     const l = listById(cur);
     const extra = [["__new", "New list…"]];
