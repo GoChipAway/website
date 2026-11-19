@@ -902,8 +902,8 @@
     return listById(l) ? l : "";
   }
   const listField = (key) => (key === "me" ? `me:${me()}` : key || "");
-  // The main list is "Shared" ("My list" on your own) and the private one "Just me", unless the household renamed
-  // them (synced settings list_name_main / list_name_me, store.js). Just me only shows on your own if something is in it.
+  // The main list is "Shared" ("My list" on your own) and the private one "Just me". (store.js can keep names a
+  // household picks, settings list_name_main / list_name_me, but there's no way to rename them yet: Matt, 2026-11-18.) Just me only shows on your own if something is in it.
   const solo = () => people().length <= 1;
   const mainName = () => (S.listNames || {}).list_name_main || (solo() ? "My list" : "Shared");
   const meName = () => (S.listNames || {}).list_name_me || "Just me";
@@ -960,14 +960,12 @@
     const l = listById(cur);
     const extra = [["__new", "New list…"]];
     if (l) extra.push(["__edit", canManage(l) ? `Edit “${l.name}”…` : `Who's on “${l.name}”`]);
-    else extra.push(["__rename", `Rename “${listName(cur)}”…`]);
     box.innerHTML = `<div class="dd list-dd" id="listDD" data-value="${esc(cur)}">
       <button type="button" class="dd-btn" aria-haspopup="listbox" aria-expanded="false" aria-label="List"><span class="dd-val">${esc(listName(cur))}</span><span class="caret" aria-hidden="true">▾</span></button>
       <div class="dd-list hidden" role="listbox" aria-label="List">${listOptions().map(([v, name]) => `<button type="button" role="option" data-v="${esc(v)}" aria-selected="${v === cur}"><span class="ln">${esc(name)}</span><span class="lc">${n(v)}</span></button>`).join("")}${extra.map(([v, name]) => `<button type="button" role="option" class="list-act" data-v="${v}" aria-selected="false">${esc(name)}</button>`).join("")}</div></div>`;
     document.getElementById("listDD").addEventListener("change", (e) => {
       const v = e.currentTarget.dataset.value;
       if (v === "__new" || v === "__edit") { drawListSwitcher(); openListSheet(v === "__edit" ? cur : null); return; }
-      if (v === "__rename") { drawListSwitcher(); openRenameSheet(cur); return; }
       switchList(v);
     });
   }
@@ -977,46 +975,6 @@
     drawListSwitcher();
     const name = route().name;
     if (name === "item" || name === "edit") location.hash = "#/plan"; else render();
-  }
-
-  /** Rename the main list or Just me, for the whole household. Empty puts back the app's own name. */
-  function openRenameSheet(key) {
-    const k = key === "me" ? "list_name_me" : "list_name_main";
-    const dflt = key === "me" ? "Just me" : solo() ? "My list" : "Shared";
-    const custom = (S.listNames || {})[k] || "";
-    const box = document.createElement("div");
-    box.className = "viewer invite-box list-sheet";
-    box.innerHTML = `<form class="card pad" id="renameForm">
-      <h2>Rename “${esc(listName(key))}”</h2>
-      <label class="small muted" for="renameBox">Name</label>
-      <input id="renameBox" type="text" maxlength="40" autocomplete="off" autocapitalize="words" value="${esc(custom || dflt)}" placeholder="${esc(dflt)}">
-      <p class="small muted">${key === "me" ? "Everyone's private list gets this name, on every phone and computer in your list. What's in it stays private." : "Everyone in your list sees the new name."}</p>
-      <div class="row-btns"><button class="btn primary" type="submit">Save</button><button class="btn" type="button" data-act="close">Cancel</button>
-        ${custom ? `<button class="btn ghost" type="button" id="renameReset">Back to “${esc(dflt)}”</button>` : ""}</div>
-    </form>`;
-    document.body.append(box);
-    const close = () => box.remove();
-    box.querySelectorAll('[data-act="close"]').forEach((b) => b.addEventListener("click", close));
-    box.addEventListener("click", (e) => { if (e.target === box) close(); });
-    box.addEventListener("keydown", (e) => { if (e.key === "Escape") close(); });
-    const input = box.querySelector("#renameBox");
-    input.focus(); input.select();
-    const save = async (name) => {
-      try {
-        await api("/api/settings", { method: "PUT", body: { [k]: name === dflt ? "" : name } });
-        close();
-        render();
-        toast(`Renamed to “${listName(key)}”.`);
-      } catch (e) { toast(e.message, true); }
-    };
-    box.querySelector("#renameForm").addEventListener("submit", (e) => {
-      e.preventDefault();
-      const name = input.value.trim();
-      if (!name) { toast("Give the list a name.", true); input.focus(); return; }
-      save(name);
-    });
-    const reset = box.querySelector("#renameReset");
-    if (reset) reset.addEventListener("click", () => save(dflt));
   }
 
   /** Make a list (key null), or edit / look at one. */
