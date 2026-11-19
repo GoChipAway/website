@@ -144,6 +144,7 @@
     S.areas = d.areas || [];
     S.modes = d.modes || S.modes;
     S.settings = d.settings || S.settings;
+    S.listNames = d.list_names || {};
     S.loaded = true;
     // items come in the order they were made (seq, then id: the same on every device)
     S.rank = Object.fromEntries(d.items.map((i, n) => [i.id, n]));
@@ -247,12 +248,12 @@
   /** Tell them once why the shared list is gone from here, so an emptier list doesn't look like a bug. */
   function offNote(r) {
     const by = r.by_name || "the owner";
-    if (r.why === "left") { toast(`You left ${by}'s list. Your Just me items are here, as your own list.`); return; }
+    if (r.why === "left") { toast(`You left ${by}'s list. Your ${meName()} items are here, as your own list.`); return; }
     const box = document.createElement("div");
     box.className = "viewer invite-box";
     box.innerHTML = `<div class="card pad">
       <h2>${r.why === "closed" ? `${esc(by)} stopped sharing their list` : `You were removed from ${esc(by)}'s list`}</h2>
-      <p>The shared list is cleared from this ${Native.isApp ? "phone" : "computer"}. Your Just me items are kept, as your own list.</p>
+      <p>The shared list is cleared from this ${Native.isApp ? "phone" : "computer"}. Your ${esc(meName())} items are kept, as your own list.</p>
       <button class="btn primary block" data-act="close">OK</button>
     </div>`;
     document.body.append(box);
@@ -340,7 +341,7 @@
     box.innerHTML = `<div class="card pad">
       <h2>Join ${esc(host)}'s list?</h2>
       <p>${esc(host)} invited you to share “${esc(inv.household_name)}”. Everyone in it sees and edits the same items, links, moods and photos.</p>
-      ${n ? `<p class="small muted">Your ${n} item${n === 1 ? "" : "s"} here go${n === 1 ? "es" : ""} in Just me, which only you see. You can move anything to the shared list later.</p>` : ""}
+      ${n ? `<p class="small muted">Your ${n} item${n === 1 ? "" : "s"} here go${n === 1 ? "es" : ""} in ${esc(meName())}, which only you see. You can move anything to the shared list later.</p>` : ""}
       <button class="btn primary block" data-join="join">Join</button>
       <button class="btn block" data-join="later">Not now</button>
       <button type="button" data-act="close" hidden></button>
@@ -361,7 +362,7 @@
         await runSync();
         absorb(dataStore.fullView());
         render();
-        toast(n ? `You're in ${host}'s list. Your items are in Just me.` : `You're in ${host}'s list.`);
+        toast(n ? `You're in ${host}'s list. Your items are in ${meName()}.` : `You're in ${host}'s list.`);
       } catch (e) {
         box.querySelectorAll("button").forEach((x) => (x.disabled = false));
         toast(e.message, true);
@@ -543,12 +544,12 @@
       ${owner && CLOUD.members.length >= MAX_PEOPLE ? `<div class="pad small muted">A shared list can have up to ${MAX_PEOPLE} people, and this one is full. Remove someone to invite someone new.</div>` : ""}
       ${owner && CLOUD.members.length < MAX_PEOPLE ? `<div class="pad"><label class="small muted" for="inviteEmail">Invite someone by email</label>
         <div class="row-btns"><input id="inviteEmail" type="email" autocomplete="off" placeholder="their@email.com"><button class="btn primary" id="inviteSend">Invite</button></div></div>` : ""}
-      ${shared() && !owner ? `<div class="set-row"><div class="t">Leave this list<div class="sub">The shared list is cleared from this ${where}. Your Just me items come with you, as your own list.</div></div><button class="btn" id="cloudLeave">Leave</button></div>` : ""}
-      ${shared() && owner ? `<div class="set-row"><div class="t">Stop sharing<div class="sub">Everyone else is taken off, and the list is cleared from their devices. They keep their own Just me items. The list stays with you.</div></div><button class="btn" id="cloudLeave">Stop</button></div>` : ""}
+      ${shared() && !owner ? `<div class="set-row"><div class="t">Leave this list<div class="sub">The shared list is cleared from this ${where}. Your ${esc(meName())} items come with you, as your own list.</div></div><button class="btn" id="cloudLeave">Leave</button></div>` : ""}
+      ${shared() && owner ? `<div class="set-row"><div class="t">Stop sharing<div class="sub">Everyone else is taken off, and the list is cleared from their devices. They keep their own ${esc(meName())} items. The list stays with you.</div></div><button class="btn" id="cloudLeave">Stop</button></div>` : ""}
       <div class="set-row"><div class="t">Sign out<div class="sub">Everything stays on this ${where}. It just stops syncing.</div></div><button class="btn" id="cloudOut">Sign out</button></div>
       <div class="set-row"><div class="t">Delete my account<div class="sub">Removes your sign-in and what's only yours from ChipAway's server. Your list stays on this ${where}.</div></div><button class="btn danger" id="accDelete">Delete…</button></div>
-      ${DELACC.open ? `<div class="pad"><div class="confirm acc-confirm"><p>Delete your ChipAway account? This removes your sign-in, your name and email, your Just me items and any list only you are on from ChipAway's server.
-        ${shared() && owner ? "The shared list goes too, for everyone in it, and is cleared from their devices. They keep their own Just me items." : shared() ? "What you added to the shared list stays there for the others, without your name." : "Your list on the server goes too."}
+      ${DELACC.open ? `<div class="pad"><div class="confirm acc-confirm"><p>Delete your ChipAway account? This removes your sign-in, your name and email, your ${esc(meName())} items and any list only you are on from ChipAway's server.
+        ${shared() && owner ? `The shared list goes too, for everyone in it, and is cleared from their devices. They keep their own ${esc(meName())} items.` : shared() ? "What you added to the shared list stays there for the others, without your name." : "Your list on the server goes too."}
         Everything stays on this ${where}, and you can keep using ChipAway without signing in. This can't be undone.</p>
         <div class="row-btns"><button class="btn small danger-solid" id="accDeleteYes">Delete my account</button><button class="btn small" id="accDeleteNo">Keep it</button></div></div></div>` : ""}`;
   }
@@ -887,7 +888,7 @@
   const people = () => (CLOUD.members.length ? CLOUD.members : recall("cloud.members", []));
   const personById = (uid) => people().find((m) => m.user_id === uid) || { user_id: uid, name: "", email: "Someone" };
   const showWho = () => signedIn() && people().length > 1;
-  // ---------- lists (shared lists): Everyone, Just me, and lists of the household's own ----------
+  // ---------- lists (shared lists): Shared (the main list), Just me, and lists of the household's own ----------
   // An item's list field (keep in step with list_visible() in supabase/schema.sql): "" = Everyone,
   // "me:<user id>" = that person's Just me, else a list's id. A list this device doesn't know counts as Everyone.
   // Here a list is named by a key: "" (Everyone), "me" (Just me) or the list's id.
@@ -901,11 +902,12 @@
     return listById(l) ? l : "";
   }
   const listField = (key) => (key === "me" ? `me:${me()}` : key || "");
-  // On your own, the main list is "My list" (it becomes Everyone once someone joins), and Just me only shows if
-  // something is in it.
+  // The main list is "Shared" ("My list" on your own) and the private one "Just me", unless the household renamed
+  // them (synced settings list_name_main / list_name_me, store.js). Just me only shows on your own if something is in it.
   const solo = () => people().length <= 1;
-  const mainName = () => (solo() ? "My list" : "Everyone");
-  const listName = (key) => (key === "me" ? "Just me" : key ? (listById(key) || { name: mainName() }).name : mainName());
+  const mainName = () => (S.listNames || {}).list_name_main || (solo() ? "My list" : "Shared");
+  const meName = () => (S.listNames || {}).list_name_me || "Just me";
+  const listName = (key) => (key === "me" ? meName() : key ? (listById(key) || { name: mainName() }).name : mainName());
   /** Lists are there whenever you're signed in (they live on the server), shared or not. */
   function listsOn() {
     return signedIn() && CLOUD.listsOk;
@@ -925,7 +927,7 @@
     return l ? people().filter((m) => l.people.includes(m.user_id)) : people();
   }
   const canManage = (l) => !!l && (l.created_by === me() || !people().some((m) => m.user_id === l.created_by));
-  const listOptions = () => [["", mainName()], ...(solo() && !S.items.some((i) => listKey(i) === "me") ? [] : [["me", "Just me"]]),
+  const listOptions = () => [["", mainName()], ...(solo() && !S.items.some((i) => listKey(i) === "me") ? [] : [["me", meName()]]),
     ...CLOUD.lists.map((l) => [l.id, l.name])];
 
   // the switcher sits where the ChipAway name is in the top bar
@@ -958,12 +960,14 @@
     const l = listById(cur);
     const extra = [["__new", "New list…"]];
     if (l) extra.push(["__edit", canManage(l) ? `Edit “${l.name}”…` : `Who's on “${l.name}”`]);
+    else extra.push(["__rename", `Rename “${listName(cur)}”…`]);
     box.innerHTML = `<div class="dd list-dd" id="listDD" data-value="${esc(cur)}">
       <button type="button" class="dd-btn" aria-haspopup="listbox" aria-expanded="false" aria-label="List"><span class="dd-val">${esc(listName(cur))}</span><span class="caret" aria-hidden="true">▾</span></button>
       <div class="dd-list hidden" role="listbox" aria-label="List">${listOptions().map(([v, name]) => `<button type="button" role="option" data-v="${esc(v)}" aria-selected="${v === cur}"><span class="ln">${esc(name)}</span><span class="lc">${n(v)}</span></button>`).join("")}${extra.map(([v, name]) => `<button type="button" role="option" class="list-act" data-v="${v}" aria-selected="false">${esc(name)}</button>`).join("")}</div></div>`;
     document.getElementById("listDD").addEventListener("change", (e) => {
       const v = e.currentTarget.dataset.value;
       if (v === "__new" || v === "__edit") { drawListSwitcher(); openListSheet(v === "__edit" ? cur : null); return; }
+      if (v === "__rename") { drawListSwitcher(); openRenameSheet(cur); return; }
       switchList(v);
     });
   }
@@ -973,6 +977,46 @@
     drawListSwitcher();
     const name = route().name;
     if (name === "item" || name === "edit") location.hash = "#/plan"; else render();
+  }
+
+  /** Rename the main list or Just me, for the whole household. Empty puts back the app's own name. */
+  function openRenameSheet(key) {
+    const k = key === "me" ? "list_name_me" : "list_name_main";
+    const dflt = key === "me" ? "Just me" : solo() ? "My list" : "Shared";
+    const custom = (S.listNames || {})[k] || "";
+    const box = document.createElement("div");
+    box.className = "viewer invite-box list-sheet";
+    box.innerHTML = `<form class="card pad" id="renameForm">
+      <h2>Rename “${esc(listName(key))}”</h2>
+      <label class="small muted" for="renameBox">Name</label>
+      <input id="renameBox" type="text" maxlength="40" autocomplete="off" autocapitalize="words" value="${esc(custom || dflt)}" placeholder="${esc(dflt)}">
+      <p class="small muted">${key === "me" ? "Everyone's private list gets this name, on every phone and computer in your list. What's in it stays private." : "Everyone in your list sees the new name."}</p>
+      <div class="row-btns"><button class="btn primary" type="submit">Save</button><button class="btn" type="button" data-act="close">Cancel</button>
+        ${custom ? `<button class="btn ghost" type="button" id="renameReset">Back to “${esc(dflt)}”</button>` : ""}</div>
+    </form>`;
+    document.body.append(box);
+    const close = () => box.remove();
+    box.querySelectorAll('[data-act="close"]').forEach((b) => b.addEventListener("click", close));
+    box.addEventListener("click", (e) => { if (e.target === box) close(); });
+    box.addEventListener("keydown", (e) => { if (e.key === "Escape") close(); });
+    const input = box.querySelector("#renameBox");
+    input.focus(); input.select();
+    const save = async (name) => {
+      try {
+        await api("/api/settings", { method: "PUT", body: { [k]: name === dflt ? "" : name } });
+        close();
+        render();
+        toast(`Renamed to “${listName(key)}”.`);
+      } catch (e) { toast(e.message, true); }
+    };
+    box.querySelector("#renameForm").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const name = input.value.trim();
+      if (!name) { toast("Give the list a name.", true); input.focus(); return; }
+      save(name);
+    });
+    const reset = box.querySelector("#renameReset");
+    if (reset) reset.addEventListener("click", () => save(dflt));
   }
 
   /** Make a list (key null), or edit / look at one. */
@@ -997,7 +1041,7 @@
       }).join("")}</div>
       <p class="small muted">${mine ? "Everyone on it can add, change and finish its items. Only you can rename it, change who's on it or delete it." : `Everyone on it can add, change and finish its items. ${esc(maker && maker.user_id !== me() ? tagName(maker) : "Whoever made it")} can rename it or change who's on it.`}</p>
       <div class="row-btns">${mine ? `<button class="btn primary" type="submit">${l ? "Save" : "Make list"}</button><button class="btn" type="button" data-act="close">Cancel</button>` : `<button class="btn primary" type="button" data-act="close">Close</button>`}</div>
-      ${l && mine ? `<div class="list-del"><button class="btn ghost danger-text" type="button" id="listDel">Delete list</button><span class="small muted">${count ? `Its ${count} item${count === 1 ? "" : "s"} move${count === 1 ? "s" : ""} to Everyone.` : "It's empty."}</span></div>` : ""}
+      ${l && mine ? `<div class="list-del"><button class="btn ghost danger-text" type="button" id="listDel">Delete list</button><span class="small muted">${count ? `Its ${count} item${count === 1 ? "" : "s"} move${count === 1 ? "s" : ""} to ${esc(mainName())}.` : "It's empty."}</span></div>` : ""}
     </form>`;
     document.body.append(box);
     const close = () => box.remove();
@@ -1038,7 +1082,7 @@
         close();
         render();
         if (CLOUD.syncer) runSync();
-        toast(`Deleted “${l.name}”.${count ? ` Its items are in Everyone.` : ""}`);
+        toast(`Deleted “${l.name}”.${count ? ` Its items are in ${mainName()}.` : ""}`);
       });
     });
   }

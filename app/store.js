@@ -18,6 +18,8 @@
   const SCHEMA = 1;
   // settings that aren't mood limits (Reset on the Moods card leaves these alone)
   const OTHER_DEFAULTS = { doing_limit: 3 };
+  // names the household gave its two built-in lists (shared lists); empty = the app's own names
+  const LIST_NAME_KEYS = ["list_name_main", "list_name_me"];
   const MAX_PHOTOS = 10; // per item: a few "this is the spot" pictures, not a camera roll
   const ITEM_FIELDS = ["parent_id", "title", "notes", "area", "priority", "difficulty", "cost", "hours", "status",
     "sort", "created_at", "started_at", "done_at", "deleted_at", "list"];
@@ -235,6 +237,14 @@
       const t = now();
       this.doc.deps[k] = { id: k, item_id: a, depends_on_id: b, created_at: t, updated_at: t, deleted_at: null, _ts: { deleted_at: Date.now() } };
     }
+    listNames() {
+      const out = {};
+      for (const k of LIST_NAME_KEYS) {
+        const v = this.doc.settings[k];
+        if (v && typeof v.value === "string" && v.value.trim()) out[k] = v.value.trim();
+      }
+      return out;
+    }
     settingsValues() {
       const out = { ...L.LIMIT_DEFAULTS, ...OTHER_DEFAULTS };
       for (const [k, v] of Object.entries(this.doc.settings)) {
@@ -262,7 +272,7 @@
         v.assignees = who[v.id] || [];
       }
       const areas = [...new Set(items.map((i) => i.area).filter(Boolean))].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
-      return { items, areas, modes: L.MODES, settings: this.settingsValues() };
+      return { items, areas, modes: L.MODES, settings: this.settingsValues(), list_names: this.listNames() };
     }
 
     // ---------- the same rules the server had ----------
@@ -473,6 +483,12 @@
     }
 
     async saveSettings(body) {
+      for (const k of LIST_NAME_KEYS) {
+        if (!(k in body)) continue;
+        const v = body[k] === null ? "" : String(body[k]).trim();
+        if (v.length > 40) bad("A list name can be up to 40 characters");
+        this.doc.settings[k] = { value: v || null, updated_at: Date.now() }; // empty = back to the app's own name
+      }
       if (body.doing_limit !== null && body.doing_limit !== undefined) {
         const n = Number(body.doing_limit);
         if (!(Number.isInteger(n) && n >= 1 && n <= 10)) bad("Pick a number from 1 to 10");
