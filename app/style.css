@@ -513,7 +513,7 @@ body.welcoming .tabs, body.welcoming [data-tab="settings"], body.welcoming .top 
 .has-lists .brand { gap: 4px; flex: none; }
 .has-lists .brand-name { font-size: .82rem; font-weight: 650; color: var(--muted); letter-spacing: 0; }
 .has-lists .mark { width: 22px; height: 22px; }
-.list-sw { min-width: 0; flex: 0 1 auto; margin-left: -8px; }
+.list-sw { min-width: 0; flex: 0 1 auto; margin-left: 0; }
 .has-lists .top-in { gap: 6px; }
 .has-lists .top-actions { flex: none; }
 .list-sw:empty { display: none; }
